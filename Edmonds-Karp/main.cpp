@@ -123,6 +123,11 @@ public:
         return net[orig][dest].capacity;
     }
 
+
+    map< unsigned int, map<unsigned int, Edge> > get_net() {
+        return net;
+    }
+
     // ========================================================================
 
 
@@ -146,13 +151,13 @@ public:
         if (net.find(orig) == net.end() || net.find(dest) == net.end()) {
             ss << "Edge (" << orig << "," << dest << 
                   ") must be between existing vertices";
-            throw new logic_error( ss.str() );
+            throw logic_error( ss.str() );
         }
 
         // Check if capacity is positive
         if (capacity < 0) {
             ss << "Capacity value " << capacity << " must be positive";
-            throw new domain_error( ss.str() );
+            throw domain_error( ss.str() );
         }
 
         // Get (and create, if needed) both forward and backward edges 
@@ -194,7 +199,7 @@ istream& read_problem_instance(istream& stream, Network& network) {
         throw runtime_error("Error reading number of edges and vertices");
 
     // Add vertices to the network
-    for (unsigned int i = 0; i < num_vertices; i++)
+    for (unsigned int i = 1; i <= num_vertices; i++)
         network.add_vertex(i);
 
     // Add edges to the network
@@ -215,26 +220,49 @@ istream& read_problem_instance(istream& stream, Network& network) {
     return stream;
 }
 
-// ============================================================================
 
-
-
-// TODO: change cout to error throws
-int main() {
+void solve_multiple_instances() {
     fstream input_file;
     input_file.open("in.txt", fstream::in);
 
     if (!input_file)
         throw runtime_error("Could not open input file");
 
-    try {
-        Network network;
-        read_problem_instance(input_file, network);
-        // TODO: set source and sink
-    } catch (exception& e) {
-        cout << e.what() << endl;
+    unsigned int num_instances;
+    if ( !(input_file >> num_instances) )
+        throw runtime_error("Error reading number of instances");
+
+    for (unsigned int i = 0; i < num_instances; i++) {
+        try {
+            Network network;        
+            read_problem_instance(input_file, network);
+        
+            map< unsigned int, map<unsigned int, Edge> > net = network.get_net();
+
+            cout << "Edges: " << endl;
+            for (map< unsigned int, map<unsigned int, Edge> >::const_iterator it = net.begin(); it != net.end(); it++) {
+                unsigned int id = it->first;
+                map<unsigned int, Edge> edges = it->second;
+
+                for (map<unsigned int, Edge>::const_iterator it2 = edges.begin(); it2 != edges.end(); it2++) {
+                    cout << '(' << id << ',' << it2->first << ") => " << it2->second.flow << '/' << it2->second.capacity << endl;
+                }
+            }
+
+            // TODO: set source and sink
+        
+        } catch (exception& e) {
+            cout << e.what() << endl;
+        }
     }
+}
+
+// ============================================================================
 
 
+
+int main() {
+    solve_multiple_instances();
+    
     return 0;
 }

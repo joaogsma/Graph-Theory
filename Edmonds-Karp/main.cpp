@@ -5,6 +5,7 @@
 #include <climits>
 #include <map>
 #include <queue>
+#include <unordered_set>
 #include <stack>
 #include <stdexcept>
 #include <string>
@@ -16,11 +17,11 @@ using std::cout;            using std::map;
 using std::domain_error;    using std::pair;
 using std::endl;            using std::queue;
 using std::exception;       using std::runtime_error;
-using std::fstream;         using std::stack;
-using std::getline;         using std::stringstream;
-using std::istream;         using std::string;
-using std::logic_error;     using std::vector;
-using std::min;             
+using std::fstream;         using std::unordered_set;
+using std::getline;         using std::stack;
+using std::istream;         using std::stringstream;
+using std::logic_error;     using std::string;
+using std::min;             using std::vector;
 
 struct Edge {
     int flow, capacity;
@@ -35,7 +36,7 @@ private:
     unsigned int source, sink;
 
 
-    bool bfs(vector<unsigned int>& path, int& min_flow) {
+    bool bfs_find_residual_path(vector<unsigned int>& path, int& min_flow) {
         // ========== Error checks ==========
         // Empty graph
         if (net.size() == 0)
@@ -125,7 +126,19 @@ private:
         return false;
     }
 
+	
+	void find_minimum_cut(unordered_set< pair<unsigned int, unsigned int> >& minimum_cut) {
+		minimum_cut.clear();
+		unordered_set<unsigned int> visited_vertices;
+		dfs_find_saturated_edge(visited_vertices, minimum_cut);
+	}
+	
 
+	void dfs_find_saturated_edge(unsigned int vertex, unordered_set<unsigned int>& visited, unordered_set< pair<unsigned int, unsigned int> >& minimum_cut) {
+		// TODO: implement
+	}
+	
+	
     void check_edge(unsigned int orig, unsigned int dest) {
         bool exists = true;
         
@@ -288,7 +301,7 @@ public:
         int min_flow;
 
         // Iterate while there is a path between source and skin
-        while ( bfs(path, min_flow) ) {
+        while ( bfs_find_residual_path(path, min_flow) ) {
             total_flow += min_flow;
 
             // Add min_flow to all edges in the returned path

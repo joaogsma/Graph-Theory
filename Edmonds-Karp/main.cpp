@@ -3,7 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <climits>
-#include <map>
+#include <unordered_map>
 #include <queue>
 #include <set>
 #include <stack>
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-using std::cout;            using std::map;
+using std::cout;            using std::unordered_map;
 using std::domain_error;    using std::pair;
 using std::endl;            using std::queue;
 using std::exception;       using std::runtime_error;
@@ -25,7 +25,7 @@ using std::min;             using std::vector;
 
 struct Max_Flow_Info {
     int max_flow;
-    map< unsigned int, map<unsigned int, int> > capacity_map;
+    unordered_map< unsigned int, unordered_map<unsigned int, int> > min_cut_edges;
 };
 
 struct Edge {
@@ -37,160 +37,11 @@ struct Edge {
 
 class Network {
 private:
-    map< unsigned int, map<unsigned int, Edge> > net;
+    unordered_map< unsigned int, unordered_map<unsigned int, Edge> > net;
     unsigned int source, sink;
 
+    // ======================= MISCELLANEOUS FUNCTIONS ========================
 
-    bool bfs_find_residual_path(vector<unsigned int>& path, int& min_flow) {
-        // ========== Error checks ==========
-        // Empty graph
-        if (net.size() == 0)
-            return false;
-
-        // Source and sink not initialized
-        if (source == sink)
-            return false;
-        // ====================================
-
-
-        // ========== Setup ==========
-        // Erase possible values in path
-        path.clear();
-
-        // Set up variables
-        queue<unsigned int> vertex_order;
-        map<unsigned int, unsigned int> parent_map;
-        vertex_order.push(source);
-        // ===========================
-
-
-        // ========== BFS loop ==========
-        while ( !vertex_order.empty() ) {
-            unsigned int vertex = vertex_order.front();
-
-            // Check if the a path was found
-            if (vertex == sink)
-                break;
-
-            map<unsigned int, Edge>& edges = net[vertex];
-
-            for (map<unsigned int, Edge>::const_iterator it = edges.begin(); 
-                  it != edges.end(); it++) {
-                unsigned int child = it->first;
-                const Edge& edge = it->second;
-
-                // True if the child has not been visited yet
-                bool valid_child = parent_map.find(child) == parent_map.end();
-                // True if there is available residual capacity
-                bool valid_edge = (edge.capacity - edge.flow) > 0;
-
-                // If this is a valid edge to a valid child, add the child to
-                // the queue and store vertex as its parent
-                if ( valid_child && valid_edge ) {
-                    parent_map[child] = vertex;
-                    vertex_order.push(child);
-                }
-            }
-
-            vertex_order.pop();
-        }
-        // ==============================
-
-
-        // ========== Process path ==========
-        // Check if a path was found
-        if ( parent_map.find(sink) != parent_map.end() ) {
-            stack<unsigned int> stack;
-            stack.push(sink);
-
-            // Add path vertices to stack in order ton invert their order
-            while (stack.top() != source)
-                stack.push( parent_map[stack.top()] );
-
-            min_flow = INT_MAX;
-
-            // Add stack vertices to path vector, in the correct order
-            while ( !stack.empty() ) {
-                unsigned int current = stack.top();
-                stack.pop();
-                path.push_back(current);
-
-                // Keep track of the smallest residual capacity
-                if (!stack.empty()) {
-                    Edge& edge = net[current][stack.top()];
-                    int capacity = edge.capacity - edge.flow;
-                    min_flow = min(min_flow, capacity);
-                }
-            }
-
-            return true;
-        }
-        // ==================================
-
-
-        return false;
-    }
-
-	
-	void find_minimum_cut(set< pair<unsigned int, unsigned int> >& minimum_cut) {
-		minimum_cut.clear();
-		map<unsigned int, unsigned int> parents;
-
-        // Marks all vertices' parents as unknown
-        for (map<unsigned int, map<unsigned int, Edge> >::const_iterator it = net.begin();
-              it != net.end(); it++)
-            parents[it->first] = UINT_MAX;
-
-		dfs_find_saturated_edge(source, parents, minimum_cut);
-	}
-	
-
-	void dfs_find_saturated_edge(unsigned int vertex, 
-          map<unsigned int, unsigned int>& parents, 
-          set< pair<unsigned int, unsigned int> >& minimum_cut) {
-		if (vertex == sink) {
-            Edge* edge;
-            unsigned int child, parent = sink;
-            do {
-                child = parent;
-                parent = parents[child];
-                edge = &net[parent][child];
-            } while (parent != source && edge->capacity == edge->flow);
-
-            // Check if a saturated edge was found
-            if (parent == source && edge->capacity != edge->flow)
-                throw logic_error("Flow in network is not maximum");
-
-            // Add saturated edge to the set
-            minimum_cut.insert( pair<unsigned int, unsigned int>(parent, child) );
-
-            return;
-        }
-
-        map<unsigned int, Edge>& edges = net[vertex];
-        for (map<unsigned int, Edge>::const_iterator it = edges.begin();
-              it != edges.end(); it++) {
-            unsigned int adjacent = it->first;
-            
-            // Ignore if vertex was already visited in this path
-            if (parents[adjacent] != UINT_MAX)
-                continue;
-
-            // Ignore if edge has no capacity
-            if (net[vertex][adjacent].capacity == 0)
-                continue;
-
-            // Mark the parent of adjacent as vertex
-            parents[adjacent] = vertex;
-            
-            dfs_find_saturated_edge(adjacent, parents, minimum_cut);
-            
-            // Mark the parent of adjacent as unknown.
-            parents[adjacent] = UINT_MAX;
-        }
-	}
-	
-	
     void check_edge(unsigned int orig, unsigned int dest) {
         bool exists = true;
         
@@ -212,25 +63,130 @@ private:
             ss << "There is no edge (" << orig << "," << dest << ")";
             throw logic_error( ss.str() );
         }
-
     }
+
+    // ========================================================================
+
+
+
+    // ==================== MAX FLOW (EDMONDS-KARP) - BFS =====================
+    
+    int bfs_find_residual_path(vector<unsigned int>& path, 
+          vector< pair<unsigned int, unsigned int> >& minimum_cut) {
+        // ========== Error checks ==========
+        // Empty graph
+        if (net.size() == 0)
+            return false;
+
+        // Source and sink not initialized
+        if (source == sink)
+            return false;
+        // ====================================
+
+
+        // ========== Setup ==========
+        // Erase possible values in variables
+        path.clear();
+        minimum_cut.clear();
+
+        // Set up variables
+        queue<unsigned int> vertex_order;
+        unordered_map<unsigned int, unsigned int> parent_map;
+        vertex_order.push(source);
+        vector< pair<unsigned int, unsigned int> > saturated_edges;
+        // ===========================
+
+
+        // ========== BFS loop ==========
+        while ( !vertex_order.empty() ) {
+            unsigned int vertex = vertex_order.front();
+
+            // Check if the a path was found
+            if (vertex == sink)
+                break;
+
+            unordered_map<unsigned int, Edge>& edges = net[vertex];
+
+            for (unordered_map<unsigned int, Edge>::const_iterator it = edges.begin(); 
+                  it != edges.end(); it++) {
+                unsigned int child = it->first;
+                const Edge& edge = it->second;
+
+                // True if the child has not been visited yet
+                bool valid_child = parent_map.find(child) == parent_map.end();
+                // True if there is available residual capacity
+                bool valid_edge = (edge.capacity - edge.flow) > 0;
+                // True if it is a saturated edge
+                bool saturated_edge = edge.capacity > 0 && 
+                      edge.capacity == edge.flow;
+
+                // If this is a valid edge to a valid child, add the child to
+                // the queue and store vertex as its parent
+                if ( valid_child && valid_edge ) {
+                    parent_map[child] = vertex;
+                    vertex_order.push(child);
+                } else if (valid_child && saturated_edge) {
+                    saturated_edges.push_back( 
+                          pair<unsigned int, unsigned int>(vertex, child) );
+                }
+            }
+
+            vertex_order.pop();
+        }
+        // ==============================
+
+
+        // ========== Path processing ==========
+        // Check if a path was found
+        if ( parent_map.find(sink) != parent_map.end() ) {
+            stack<unsigned int> stack;
+            stack.push(sink);
+
+            // Add path vertices to stack in order to invert their order
+            while (stack.top() != source)
+                stack.push( parent_map[stack.top()] );
+
+            int min_flow = INT_MAX;
+
+            // Add stack vertices to path vector, in the correct order
+            while ( !stack.empty() ) {
+                unsigned int current = stack.top();
+                stack.pop();
+                path.push_back(current);
+
+                // Keep track of the smallest residual capacity
+                if (!stack.empty()) {
+                    Edge& edge = net[current][stack.top()];
+                    int residual_capacity = edge.capacity - edge.flow;
+                    min_flow = min(min_flow, residual_capacity);
+                }
+            }
+
+            return min_flow;
+        } else {
+            minimum_cut.insert(minimum_cut.end(), saturated_edges.begin(), 
+                  saturated_edges.end());
+        }
+        // =====================================
+
+
+        return 0;
+    }
+
+    // ========================================================================
+
+
 
 public:
-    map< unsigned int, map<unsigned int, Edge> >* net_shortcut;
-
-    void update() {
-        net_shortcut = &net;
-    }
-
-    // ======================= MISCELLANEOUS FUNCTIONS ========================
+    // ====================== FLOW MODIFYING FUNCTIONS ========================
 
     void clean_flow() {
-        typedef map< unsigned int, map<unsigned int, Edge> >::iterator vertex_it;
-        typedef map<unsigned int, Edge>::iterator edge_it;
+        typedef unordered_map< unsigned int, unordered_map<unsigned int, Edge> >::iterator vertex_it;
+        typedef unordered_map<unsigned int, Edge>::iterator edge_it;
 
         // Iterate through all vertices
         for (vertex_it v_it = net.begin(); v_it != net.end(); v_it++) {
-            map<unsigned int, Edge>& edges = v_it->second;
+            unordered_map<unsigned int, Edge>& edges = v_it->second;
             
             // Iterate through all edges of a given vertex
             for (edge_it e_it = edges.begin(); e_it != edges.end(); e_it++) {
@@ -240,6 +196,7 @@ public:
             }
         }
     }
+
 
     void add_flow(unsigned int orig, unsigned int dest, int flow) {
         check_edge(orig, dest);
@@ -307,7 +264,7 @@ public:
 
 
 
-    // =========================== GRAPH MODIFIERS ============================
+    // ======================= GRAPH BUILDING FUNCTIONS =======================
     
     void add_vertex(unsigned int id) {
         if (net.find(id) != net.end()) {
@@ -316,7 +273,7 @@ public:
             throw logic_error( ss.str() );
         }
 
-        net[id] = map<unsigned int, Edge>();
+        net[id] = unordered_map<unsigned int, Edge>();
     }
 
 
@@ -350,32 +307,36 @@ public:
 
     // ======================= MAX FLOW (EDMONDS-KARP) ========================
     
-    // TODO: return edges of the minimum cut
     void max_flow (Max_Flow_Info& info) {
         clean_flow();
         
         int total_flow = 0;
         vector<unsigned int> path;
+        vector< pair<unsigned int, unsigned int> > minimum_cut;
         int min_flow;
 
         // Iterate while there is a path between source and skin
-        while ( bfs_find_residual_path(path, min_flow) ) {
+        min_flow = bfs_find_residual_path(path, minimum_cut);
+        while ( min_flow ) {
             total_flow += min_flow;
 
             // Add min_flow to all edges in the returned path
             for (vector<unsigned int>::size_type i = 0; i < path.size() - 1; i++)
                 add_flow( path[i], path[i+1], min_flow);
+
+            // Try to find another path
+            min_flow = bfs_find_residual_path(path, minimum_cut);
         }
 
-        set< pair<unsigned int, unsigned int> > minimum_cut;
-        find_minimum_cut(minimum_cut);
-
+        // Store maximum flow value
         info.max_flow = total_flow;
-        for (set< pair<unsigned int, unsigned int> >::const_iterator it = minimum_cut.begin();
+
+        // Store the saturated edges
+        typedef vector< pair<unsigned int, unsigned int> > edge_vec;
+        for (edge_vec::const_iterator it = minimum_cut.begin(); 
               it != minimum_cut.end(); it++) {
-            unsigned int orig = it->first;
-            unsigned int dest = it->second;
-            info.capacity_map[orig][dest] = net[orig][dest].flow;
+            unsigned int orig = it->first, dest = it->second;
+            info.min_cut_edges[orig][dest] = net[orig][dest].flow;
         }
     }
 
@@ -386,14 +347,42 @@ public:
 
 // =============================== IO FUNCTIONS ===============================
 
-istream& read_problem_instance(istream& stream, Network& network) {
+string instance_to_string(int instance, const Max_Flow_Info& info) {
+    stringstream ss;
+
+    ss << "O fluxo máximo na rede " << instance << " tem valor " << 
+          info.max_flow << ". Um corte saturado na rede " << instance << 
+          " com este fluxo contém as arestas: " << endl;
+
+    for (unordered_map< unsigned int, unordered_map<unsigned int, int> >::const_iterator orig_it = info.min_cut_edges.begin(); 
+          orig_it != info.min_cut_edges.end(); orig_it++) {
+        unsigned int orig = orig_it->first;
+        const unordered_map<unsigned int, int>& edges = orig_it->second;
+            
+        for (unordered_map<unsigned int, int>::const_iterator dest_it = edges.begin();
+              dest_it != edges.end(); dest_it++) {
+            unsigned int dest = dest_it->first;
+            int flow = dest_it->second;
+            ss << orig << "," << dest << " " << flow << endl;
+        }
+    }
+
+    return ss.str();
+}
+
+
+istream& read_problem_instance(istream& stream, Network& network, int instance) {
     unsigned int num_vertices, num_edges;
 
     if (!stream)
         return stream;
 
-    if (!(stream >> num_edges) || !(stream >> num_vertices))
-        throw runtime_error("Error reading number of edges and vertices");
+    if (!(stream >> num_edges) || !(stream >> num_vertices)) {
+        stringstream ss;
+        ss << "On instance " << instance << 
+              " => Could not read number of edges and vertices";
+        throw runtime_error( ss.str() );
+    }
 
     // Add vertices to the network
     for (unsigned int i = 1; i <= num_vertices; i++)
@@ -407,7 +396,7 @@ istream& read_problem_instance(istream& stream, Network& network) {
         if (!(stream >> origin) || !(stream >> destination) || 
               !(stream >> capacity)) {
             stringstream ss;
-            ss << "Error reading edge #" << (i + 1);
+            ss << "On instance " << instance << " => Could not read edge #" << (i + 1);
             throw runtime_error( ss.str() );
         }
 
@@ -422,38 +411,40 @@ istream& read_problem_instance(istream& stream, Network& network) {
 }
 
 
-void solve_multiple_instances() {
-    fstream input_file;
-    input_file.open("in.txt", fstream::in);
+void solve_multiple_instances(string in_filename, string out_filename) {
+    fstream input_file, output_file;
+    input_file.open(in_filename, fstream::in);
+    output_file.open(out_filename, fstream::out);
 
     if (!input_file)
-        throw runtime_error("Could not open input file");
+        throw runtime_error("Could not open file " + in_filename);
+
+    if (!output_file)
+        throw runtime_error("Could not open file " + out_filename);        
 
     unsigned int num_instances;
     if ( !(input_file >> num_instances) )
-        throw runtime_error("Error reading number of instances");
+        throw runtime_error("Could not read number of instances");
 
     for (unsigned int i = 0; i < num_instances; i++) {
-        try {
-            Network network;
-            network.update(); 
-            read_problem_instance(input_file, network);
+        Network network;
+        read_problem_instance(input_file, network, i+1);
 
-            Max_Flow_Info info;
-            network.max_flow(info);
+        Max_Flow_Info info;
+        network.max_flow(info);
 
-            cout << "Max. Flow = " << info.max_flow << endl;
-            for (map< unsigned int, map<unsigned int, int> >::const_iterator it = info.capacity_map.begin();
-                  it != info.capacity_map.end(); it++)
-                for (map<unsigned int, int>::const_iterator it2 = (it->second).begin();
-                      it2 != (it->second).end(); it2++)
-                    cout << "Edge (" << it->first << ", " << it2->first << ") => " << it2->second << "/" << (*network.net_shortcut)[it->first][it2->first].capacity << endl;
+        string output = instance_to_string(i+1, info);
 
+        if (i != 0)
+            if ( !(output_file << endl) )
+                throw runtime_error("Could not write to file " + out_filename);        
 
-        } catch (exception& e) {
-            cout << e.what() << endl;
-        }
+        if ( !(output_file << output) )
+            throw runtime_error("Could not write to file " + out_filename);
     }
+
+    input_file.close();
+    output_file.close();
 }
 
 // ============================================================================
@@ -461,7 +452,12 @@ void solve_multiple_instances() {
 
 
 int main() {
-    solve_multiple_instances();
+    try {
+        solve_multiple_instances("ProjetoMF_input.txt", 
+              "ProjetoMF_output_jgsma.txt");
+    } catch (exception& e) {
+        cout << e.what() << endl;
+    }
     
     return 0;
 }

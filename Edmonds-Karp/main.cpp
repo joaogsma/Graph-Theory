@@ -5,7 +5,7 @@
 #include <climits>
 #include <map>
 #include <queue>
-#include <unordered_set>
+#include <set>
 #include <stack>
 #include <stdexcept>
 #include <string>
@@ -17,11 +17,16 @@ using std::cout;            using std::map;
 using std::domain_error;    using std::pair;
 using std::endl;            using std::queue;
 using std::exception;       using std::runtime_error;
-using std::fstream;         using std::unordered_set;
+using std::fstream;         using std::set;
 using std::getline;         using std::stack;
 using std::istream;         using std::stringstream;
 using std::logic_error;     using std::string;
 using std::min;             using std::vector;
+
+struct Max_Flow_Info {
+    int max_flow;
+    map< unsigned int, map<unsigned int, int> > capacity_map;
+};
 
 struct Edge {
     int flow, capacity;
@@ -127,15 +132,62 @@ private:
     }
 
 	
-	void find_minimum_cut(unordered_set< pair<unsigned int, unsigned int> >& minimum_cut) {
+	void find_minimum_cut(set< pair<unsigned int, unsigned int> >& minimum_cut) {
 		minimum_cut.clear();
-		unordered_set<unsigned int> visited_vertices;
-		dfs_find_saturated_edge(visited_vertices, minimum_cut);
+		map<unsigned int, unsigned int> parents;
+
+        // Marks all vertices' parents as unknown
+        for (map<unsigned int, map<unsigned int, Edge> >::const_iterator it = net.begin();
+              it != net.end(); it++)
+            parents[it->first] = UINT_MAX;
+
+		dfs_find_saturated_edge(source, parents, minimum_cut);
 	}
 	
 
-	void dfs_find_saturated_edge(unsigned int vertex, unordered_set<unsigned int>& visited, unordered_set< pair<unsigned int, unsigned int> >& minimum_cut) {
-		// TODO: implement
+	void dfs_find_saturated_edge(unsigned int vertex, 
+          map<unsigned int, unsigned int>& parents, 
+          set< pair<unsigned int, unsigned int> >& minimum_cut) {
+		if (vertex == sink) {
+            Edge* edge;
+            unsigned int child, parent = sink;
+            do {
+                child = parent;
+                parent = parents[child];
+                edge = &net[parent][child];
+            } while (parent != source && edge->capacity == edge->flow);
+
+            // Check if a saturated edge was found
+            if (parent == source && edge->capacity != edge->flow)
+                throw logic_error("Flow in network is not maximum");
+
+            // Add saturated edge to the set
+            minimum_cut.insert( pair<unsigned int, unsigned int>(parent, child) );
+
+            return;
+        }
+
+        map<unsigned int, Edge>& edges = net[vertex];
+        for (map<unsigned int, Edge>::const_iterator it = edges.begin();
+              it != edges.end(); it++) {
+            unsigned int adjacent = it->first;
+            
+            // Ignore if vertex was already visited in this path
+            if (parents[adjacent] != UINT_MAX)
+                continue;
+
+            // Ignore if edge has no capacity
+            if (net[vertex][adjacent].capacity == 0)
+                continue;
+
+            // Mark the parent of adjacent as vertex
+            parents[adjacent] = vertex;
+            
+            dfs_find_saturated_edge(adjacent, parents, minimum_cut);
+            
+            // Mark the parent of adjacent as unknown.
+            parents[adjacent] = UINT_MAX;
+        }
 	}
 	
 	
@@ -164,6 +216,12 @@ private:
     }
 
 public:
+    map< unsigned int, map<unsigned int, Edge> >* net_shortcut;
+
+    void update() {
+        net_shortcut = &net;
+    }
+
     // ======================= MISCELLANEOUS FUNCTIONS ========================
 
     void clean_flow() {
@@ -293,7 +351,7 @@ public:
     // ======================= MAX FLOW (EDMONDS-KARP) ========================
     
     // TODO: return edges of the minimum cut
-    int max_flow () {
+    void max_flow (Max_Flow_Info& info) {
         clean_flow();
         
         int total_flow = 0;
@@ -309,7 +367,16 @@ public:
                 add_flow( path[i], path[i+1], min_flow);
         }
 
-        return total_flow;
+        set< pair<unsigned int, unsigned int> > minimum_cut;
+        find_minimum_cut(minimum_cut);
+
+        info.max_flow = total_flow;
+        for (set< pair<unsigned int, unsigned int> >::const_iterator it = minimum_cut.begin();
+              it != minimum_cut.end(); it++) {
+            unsigned int orig = it->first;
+            unsigned int dest = it->second;
+            info.capacity_map[orig][dest] = net[orig][dest].flow;
+        }
     }
 
     // ========================================================================
@@ -368,10 +435,20 @@ void solve_multiple_instances() {
 
     for (unsigned int i = 0; i < num_instances; i++) {
         try {
-            Network network;        
+            Network network;
+            network.update(); 
             read_problem_instance(input_file, network);
 
-            // TODO: process output
+            Max_Flow_Info info;
+            network.max_flow(info);
+
+            cout << "Max. Flow = " << info.max_flow << endl;
+            for (map< unsigned int, map<unsigned int, int> >::const_iterator it = info.capacity_map.begin();
+                  it != info.capacity_map.end(); it++)
+                for (map<unsigned int, int>::const_iterator it2 = (it->second).begin();
+                      it2 != (it->second).end(); it2++)
+                    cout << "Edge (" << it->first << ", " << it2->first << ") => " << it2->second << "/" << (*network.net_shortcut)[it->first][it2->first].capacity << endl;
+
 
         } catch (exception& e) {
             cout << e.what() << endl;

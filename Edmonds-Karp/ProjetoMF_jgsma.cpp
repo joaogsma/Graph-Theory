@@ -456,7 +456,7 @@ int main() {
         solve_multiple_instances("ProjetoMF_input.txt", 
               "ProjetoMF_output_jgsma.txt");
     } catch (exception& e) {
-        cout << e.what() << endl;
+        cout << "ERROR: " << e.what() << endl;
     }
     
     return 0;

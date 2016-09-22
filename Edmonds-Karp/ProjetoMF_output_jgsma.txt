@@ -2,3 +2,14 @@ O fluxo máximo na rede 1 tem valor 5. Um corte saturado na rede 1 com este flux
 1,4 3
 3,4 1
 5,7 1
+
+O fluxo máximo na rede 2 tem valor 6. Um corte saturado na rede 2 com este fluxo contém as arestas: 
+1,4 1
+2,4 2
+3,4 1
+3,5 2
+
+O fluxo máximo na rede 3 tem valor 5. Um corte saturado na rede 3 com este fluxo contém as arestas: 
+1,2 2
+1,3 2
+4,6 1

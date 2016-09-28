@@ -3,9 +3,11 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Scanner;
 import java.util.LinkedList;
 
 public class Eulerian_Path_jgsma {
@@ -109,11 +111,13 @@ public class Eulerian_Path_jgsma {
 	// ========================================================================
     class Vertex {
         List<Edge> edges;
+        int edge_idx;
         final int id;
 
         public Vertex(int id) {
             this.id = id;
-            edges = new LinkedList<Edge>();
+            edge_idx = 0;
+            edges = new ArrayList<Edge>();
         }
 
         
@@ -203,7 +207,11 @@ public class Eulerian_Path_jgsma {
         	if (vertices.isEmpty())
         		throw new RuntimeException("Empty graph");
         	
-        	marked.clear(); 	// Clean-up phase
+        	// Clean-up phase
+        	marked.clear();
+        	for (Vertex v : vertices.values())
+        		v.edge_idx = 0;
+        	
         	List_Node<Vertex> circuit_head = rec_euler_circuit_hierholzer(
         			vertices.get(start_vertex_id));
         	
@@ -276,17 +284,20 @@ public class Eulerian_Path_jgsma {
         		else 
 	        		cycle.append(new List_Node<Vertex>(current));
         		        		
-        		// Find an unmarked edge
-        		for (Edge e : current.edges) {
-        			if (!marked.contains(e)) {
+        		// Find an unmarked edge, if there is one
+        		if (current.edge_idx < current.edges.size()) {
+        			Edge e;
+        			do {
+        				e = current.edges.get(current.edge_idx++);
+        			} while(marked.contains(e) && current.edge_idx < current.edges.size());
+        			
+        			if (!marked.contains(e)) {        				
         				// Mark the edge
         				marked.add(e);
         				// Move current to the adjacent vertex
         				current = current.adjacent(e);
-        				break;
         			}
         		}
-        		
         	} while(current != v);
         	
         	return cycle;
@@ -303,8 +314,12 @@ public class Eulerian_Path_jgsma {
     	String filename;
     	Graph g;
     	
+    	Scanner scan = new Scanner(System.in);
+    	System.out.println("Enter the input file:");
+    	filename = scan.nextLine();
+    	
+    	
     	try {
-    		filename = args[args.length - 1];
     		g = load_graph(filename);
     	} catch (ArrayIndexOutOfBoundsException e) {
     		System.out.println("Please specify the input file");
@@ -316,6 +331,8 @@ public class Eulerian_Path_jgsma {
     			System.out.println("Could not read file");
     		
     		return;
+    	} finally {
+    		scan.close();
     	}
     	
     	List<Vertex> euler_circuit = g.euler_circuit_hierholzer();

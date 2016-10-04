@@ -4,18 +4,18 @@
 #include <stdexcept>
 #include <sstream>
 
+using std::cout;
 using std::endl;
 using std::logic_error;
 using std::map;
 using std::string;
 using std::stringstream;
 using std::set;
-using std::cout;
 
 /*
 
 ===== TODO List: =====
-- Optimal vertex cover function (brute-force)
+- Test optimal vertex cover function (brute-force)
 - Greedy vertex cover function (heuristic)
 - Main function
 - Graph generation functions
@@ -36,15 +36,15 @@ private:
     map<vertex_id, set<vertex_id> > graph;
 
 public:
-    Simple_Graph();
-
     void add_vertex(vertex_id id);
 
     void add_edge(vertex_id a, vertex_id b);
 
+    void greedy_vc(set<vertex_id> &cover);
+
     void optimal_vc(set<vertex_id> &cover);
 
-    void greedy_vc(set<vertex_id> &cover);
+    bool is_valid_cover(const set<vertex_id> &combination);
 };
 
 // ============================================================================
@@ -94,13 +94,20 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
 }
 
 
+void Simple_Graph::greedy_vc(set<vertex_id> &cover)
+{
+    cover.clear();
+}
+
+
 void Simple_Graph::optimal_vc(set<vertex_id> &cover)
 {
     cover.clear();
 
     // This set will hold the vertex sets checked as possible covers
     set<set<vertex_id> > valid_covers;
-    set<set<vertex_id> > combinations;
+    set<set<vertex_id> > *combinations = new set<set<vertex_id> >;
+    set<set<vertex_id> > *next_combinations = new set<set<vertex_id> >;
 
     // Insert all sets of size 1 in combinations
     for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
@@ -108,27 +115,82 @@ void Simple_Graph::optimal_vc(set<vertex_id> &cover)
     {
         set<vertex_id> temp_set;
         temp_set.insert( it->first );
-        combinations.insert( temp_set );
+        combinations->insert( temp_set );
     }
 
     // For each vertex and each subset, add a subset that contains the vertex 
     // and one that does not
-    for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
-        it != graph.end(); it++)
+    for (map<vertex_id, set<vertex_id> >::const_iterator vertex_it = graph.begin();
+        vertex_it != graph.end(); vertex_it++)
     {
-        for (set<set<vertex_id> >::const_iterator)
+        vertex_id current_vertex = vertex_it->first;
+       
+        for (set<set<vertex_id> >::const_iterator comb_it = combinations->begin();
+            comb_it != combinations->end(); comb_it++)
+        {
+            const set<vertex_id> &current_comb = *comb_it;
+            
+            // Move the combination to the next iteration set
+            next_combinations->insert( current_comb );
+            
+            // Continue if the current vertex is already in it
+            if ( current_comb.find( current_vertex ) != current_comb.end() )
+                continue;
+
+            set<vertex_id> current_comb_copy = current_comb;
+
+            // Add the current combination U {current_vertex} to the next
+            // iteration set
+            current_comb_copy.insert( current_vertex );
+
+            // Check if the combination is a valid vertex cover
+            if ( is_valid_cover(current_comb_copy) )
+            {
+                // Store the vertex cover if it is the first one found or it 
+                // contains less vertices than the previous one
+                if (cover.empty() || current_comb_copy.size() < cover.size())
+                    cover = current_comb_copy;
+            }
+
+            next_combinations->insert( current_comb_copy );
+        }
+
+        // Stop if a vertex cover was found
+        if ( !cover.empty() )
+            return;
+
+        // update the combinations pointer
+        delete combinations;
+        combinations = next_combinations;
+        next_combinations = new set<set<vertex_id> >; 
     }
 }
 
 
-
-
-
-void Simple_Graph::greedy_vc(set<vertex_id> &cover)
+bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination)
 {
-    cover.clear();
+    for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
+        it != graph.end(); it++)
+    {
+        vertex_id current_vertex = it->first;
+        const set<vertex_id> &edges = it->second;
 
+        // Continue if the current vertex is in combination
+        if ( combination.find(current_vertex) != combination.end() )
+            continue;
 
+        for (set<vertex_id>::const_iterator edge_it = edges.begin();
+            edge_it != edges.end(); edge_it++)
+        {
+            vertex_id other_vertex = *edge_it;
+
+            // Check if the second vertex is in combination
+            if ( combination.find(other_vertex) == combination.end() )
+                return false;   // Found an edge not covered           
+        }
+    }
+
+    return true;
 }
 
 // ============================================================================
@@ -151,7 +213,30 @@ void Simple_Graph::greedy_vc(set<vertex_id> &cover)
 
 int main()
 {
-    cout << "Hello, World!" << endl;
+    // Test sample
+    Simple_Graph g;
+
+    for (int i = 1; i <= 6; i++)
+        g.add_vertex(i);
+
+    g.add_edge(1, 2);
+    g.add_edge(1, 3);
+    g.add_edge(2, 3);
+    g.add_edge(2, 4);
+    g.add_edge(3, 5);
+    g.add_edge(4, 5);
+    g.add_edge(4, 6);
+
+    set<vertex_id> cover;
+
+    g.optimal_vc( cover );
+
+    cout << "Vertex Cover:" << endl;
+    for (set<vertex_id>::const_iterator it = cover.begin(); it != cover.end(); it++)
+    {
+        cout << " " << *it;
+    }
+    cout << endl;
 
     return 0;
 }

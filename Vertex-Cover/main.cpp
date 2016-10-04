@@ -1,13 +1,16 @@
+#include <iostream>
 #include <map>
 #include <set>
 #include <stdexcept>
-#include <stream>
+#include <sstream>
 
 using std::endl;
 using std::logic_error;
 using std::map;
+using std::string;
 using std::stringstream;
 using std::set;
+using std::cout;
 
 /*
 
@@ -20,7 +23,6 @@ using std::set;
 ======================
 
 */
-
 
 
 // ============================================================================
@@ -94,12 +96,38 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
 
 void Simple_Graph::optimal_vc(set<vertex_id> &cover)
 {
+    cover.clear();
 
+    // This set will hold the vertex sets checked as possible covers
+    set<set<vertex_id> > valid_covers;
+    set<set<vertex_id> > combinations;
+
+    // Insert all sets of size 1 in combinations
+    for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
+        it != graph.end(); it++)
+    {
+        set<vertex_id> temp_set;
+        temp_set.insert( it->first );
+        combinations.insert( temp_set );
+    }
+
+    // For each vertex and each subset, add a subset that contains the vertex 
+    // and one that does not
+    for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
+        it != graph.end(); it++)
+    {
+        for (set<set<vertex_id> >::const_iterator)
+    }
 }
+
+
+
 
 
 void Simple_Graph::greedy_vc(set<vertex_id> &cover)
 {
+    cover.clear();
+
 
 }
 
@@ -123,7 +151,9 @@ void Simple_Graph::greedy_vc(set<vertex_id> &cover)
 
 int main()
 {
-    // TODO...
+    cout << "Hello, World!" << endl;
+
+    return 0;
 }
 
 // ============================================================================

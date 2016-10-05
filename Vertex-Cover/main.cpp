@@ -15,7 +15,6 @@ using std::set;
 /*
 
 ===== TODO List: =====
-- Test optimal vertex cover function (brute-force)
 - Greedy vertex cover function (heuristic)
 - Main function
 - Graph generation functions
@@ -118,47 +117,55 @@ void Simple_Graph::optimal_vc(set<vertex_id> &cover)
         combinations->insert( temp_set );
     }
 
-    // For each vertex and each subset, add a subset that contains the vertex 
-    // and one that does not
-    for (map<vertex_id, set<vertex_id> >::const_iterator vertex_it = graph.begin();
-        vertex_it != graph.end(); vertex_it++)
+    while(true)
     {
-        vertex_id current_vertex = vertex_it->first;
-       
+        cout << "Combinations:" << endl;
+        for (set<set<vertex_id> >::const_iterator it = combinations->begin();
+            it != combinations->end(); it++)
+        {
+            cout << "\t";
+            for (set<vertex_id>::const_iterator id_it = it->begin(); 
+                id_it != it->end(); id_it++)
+            {
+                cout << " " << *id_it;
+            }
+            cout << endl;
+        }
+
         for (set<set<vertex_id> >::const_iterator comb_it = combinations->begin();
             comb_it != combinations->end(); comb_it++)
         {
             const set<vertex_id> &current_comb = *comb_it;
-            
-            // Move the combination to the next iteration set
-            next_combinations->insert( current_comb );
-            
-            // Continue if the current vertex is already in it
-            if ( current_comb.find( current_vertex ) != current_comb.end() )
-                continue;
 
-            set<vertex_id> current_comb_copy = current_comb;
-
-            // Add the current combination U {current_vertex} to the next
-            // iteration set
-            current_comb_copy.insert( current_vertex );
-
-            // Check if the combination is a valid vertex cover
-            if ( is_valid_cover(current_comb_copy) )
+            // For each vertex and each subset, add a subset that contains the vertex 
+            // and one that does not
+            for (map<vertex_id, set<vertex_id> >::const_iterator vertex_it = graph.begin();
+                vertex_it != graph.end(); vertex_it++)
             {
-                // Store the vertex cover if it is the first one found or it 
-                // contains less vertices than the previous one
-                if (cover.empty() || current_comb_copy.size() < cover.size())
+                vertex_id current_vertex = vertex_it->first;
+           
+                // Continue if the current vertex is already in it
+                if ( current_comb.find( current_vertex ) != current_comb.end() )
+                    continue;
+
+                set<vertex_id> current_comb_copy = current_comb;
+
+                // Add the current combination U {current_vertex} to the next
+                // iteration set
+                current_comb_copy.insert( current_vertex );
+
+                // Check if the combination is a valid vertex cover
+                if ( is_valid_cover(current_comb_copy) )
                     cover = current_comb_copy;
+
+                next_combinations->insert( current_comb_copy );
             }
 
-            next_combinations->insert( current_comb_copy );
+            // Stop if a vertex cover was found
+            if ( !cover.empty() )
+                return;
         }
-
-        // Stop if a vertex cover was found
-        if ( !cover.empty() )
-            return;
-
+        
         // update the combinations pointer
         delete combinations;
         combinations = next_combinations;
@@ -223,10 +230,9 @@ int main()
     g.add_edge(1, 3);
     g.add_edge(2, 3);
     g.add_edge(2, 4);
-    g.add_edge(3, 5);
-    g.add_edge(4, 5);
-    g.add_edge(4, 6);
-
+    g.add_edge(2, 5);
+    g.add_edge(2, 6);
+    
     set<vertex_id> cover;
 
     g.optimal_vc( cover );

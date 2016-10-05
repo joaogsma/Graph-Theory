@@ -12,17 +12,6 @@ using std::string;
 using std::stringstream;
 using std::set;
 
-/*
-
-===== TODO List: =====
-- Greedy vertex cover function (heuristic)
-- Main function
-- Graph generation functions
-- Analysis functions
-======================
-
-*/
-
 
 // ============================================================================
 // ============================= CLASS DEFINITION =============================
@@ -34,6 +23,11 @@ class Simple_Graph {
 private:
     map<vertex_id, set<vertex_id> > graph;
 
+    bool is_valid_cover(const set<vertex_id> &combination);
+    
+    vertex_id greatest_degree_vertex(
+        const map<vertex_id, set<vertex_id> > &graph);
+
 public:
     void add_vertex(vertex_id id);
 
@@ -43,7 +37,6 @@ public:
 
     void optimal_vc(set<vertex_id> &cover);
 
-    bool is_valid_cover(const set<vertex_id> &combination);
 };
 
 // ============================================================================
@@ -93,9 +86,62 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
 }
 
 
+vertex_id Simple_Graph::greatest_degree_vertex(
+    const map<vertex_id, set<vertex_id> > &graph)
+{
+    set<vertex_id>::size_type max_degree = 0;
+    vertex_id greatest_deg_vertex;
+    typedef map<vertex_id, set<vertex_id> >::const_iterator vertex_iterator;
+        
+    for(vertex_iterator v_it = graph.begin(); 
+        v_it != graph.end(); v_it++)
+    {
+        vertex_id current_vertex = v_it->first;
+        set<vertex_id>::size_type degree = v_it->second.size();
+        
+        if ( degree > max_degree )
+        {
+            max_degree = degree;
+            greatest_deg_vertex = current_vertex;
+        }
+    }
+
+    return greatest_deg_vertex;
+}
+
+
 void Simple_Graph::greedy_vc(set<vertex_id> &cover)
 {
     cover.clear();
+
+    map<vertex_id, set<vertex_id> > graph_copy = graph;
+
+    while( !graph_copy.empty() )
+    {
+        // Find the vertex with the greatest degree
+        vertex_id gdv = greatest_degree_vertex(graph_copy);
+        
+        cover.insert( gdv );
+        
+        /*  Remove the greatest degree vertex from the adjacency list of each
+            of its adjacent vertices */
+        set<vertex_id> &adj_vertices = graph_copy[gdv];
+        for (set<vertex_id>::const_iterator adj_vertex_it = adj_vertices.begin();
+            adj_vertex_it != adj_vertices.end(); adj_vertex_it++)
+        {
+            vertex_id adj_vertex = *adj_vertex_it;
+            set<vertex_id> &adj_vertex_edges = graph_copy[adj_vertex];
+            
+            adj_vertex_edges.erase( gdv );
+            
+            // If the vertex has become isolated, remove it from graph_copy
+            if ( adj_vertex_edges.empty() )
+                graph_copy.erase( *adj_vertex_it );
+        }
+
+        // Remove the greatest degree vertex from the graph
+        graph_copy.erase( gdv );
+    }
 }
 
 
@@ -105,71 +151,69 @@ void Simple_Graph::optimal_vc(set<vertex_id> &cover)
 
     // This set will hold the vertex sets checked as possible covers
     set<set<vertex_id> > valid_covers;
-    set<set<vertex_id> > *combinations = new set<set<vertex_id> >;
-    set<set<vertex_id> > *next_combinations = new set<set<vertex_id> >;
+    set<set<vertex_id> > *subsets = new set<set<vertex_id> >;
+    set<set<vertex_id> > *next_subsets = new set<set<vertex_id> >;
 
-    // Insert all sets of size 1 in combinations
+    // Insert all sets of size 1 in subsets
     for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
         it != graph.end(); it++)
     {
-        set<vertex_id> temp_set;
-        temp_set.insert( it->first );
-        combinations->insert( temp_set );
+        set<vertex_id> unit_set;
+        unit_set.insert( it->first );
+
+        // If the unit set is a valid cover, return it
+        if ( is_valid_cover(unit_set) )
+        {
+            cover = unit_set;
+            delete subsets;
+            delete next_subsets;
+            return;
+        }
+
+        subsets->insert( unit_set );
     }
 
     while(true)
     {
-        cout << "Combinations:" << endl;
-        for (set<set<vertex_id> >::const_iterator it = combinations->begin();
-            it != combinations->end(); it++)
+        for (set<set<vertex_id> >::const_iterator comb_it = subsets->begin();
+            comb_it != subsets->end(); comb_it++)
         {
-            cout << "\t";
-            for (set<vertex_id>::const_iterator id_it = it->begin(); 
-                id_it != it->end(); id_it++)
-            {
-                cout << " " << *id_it;
-            }
-            cout << endl;
-        }
+            const set<vertex_id> &current_subset = *comb_it;
 
-        for (set<set<vertex_id> >::const_iterator comb_it = combinations->begin();
-            comb_it != combinations->end(); comb_it++)
-        {
-            const set<vertex_id> &current_comb = *comb_it;
-
-            // For each vertex and each subset, add a subset that contains the vertex 
-            // and one that does not
+            /*  For each vertex and each subset, add a subset that contains the 
+                vertex and one that does not */
             for (map<vertex_id, set<vertex_id> >::const_iterator vertex_it = graph.begin();
                 vertex_it != graph.end(); vertex_it++)
             {
                 vertex_id current_vertex = vertex_it->first;
            
                 // Continue if the current vertex is already in it
-                if ( current_comb.find( current_vertex ) != current_comb.end() )
+                if ( current_subset.find( current_vertex ) != current_subset.end() )
                     continue;
 
-                set<vertex_id> current_comb_copy = current_comb;
+                set<vertex_id> current_subset_copy = current_subset;
 
-                // Add the current combination U {current_vertex} to the next
-                // iteration set
-                current_comb_copy.insert( current_vertex );
+                /*  Add the current subset U {current_vertex} to the next
+                    iteration set */
+                current_subset_copy.insert( current_vertex );
 
-                // Check if the combination is a valid vertex cover
-                if ( is_valid_cover(current_comb_copy) )
-                    cover = current_comb_copy;
+                // Check if the subset is a valid vertex cover
+                if ( is_valid_cover(current_subset_copy) )
+                {
+                    cover = current_subset_copy;
+                    delete subsets;
+                    delete next_subsets;
+                    return;
+                }
 
-                next_combinations->insert( current_comb_copy );
+                next_subsets->insert( current_subset_copy );
             }
-
-            // Stop if a vertex cover was found
-            if ( !cover.empty() )
-                return;
         }
         
-        // update the combinations pointer
-        delete combinations;
-        combinations = next_combinations;
-        next_combinations = new set<set<vertex_id> >; 
+        // Update the subsets pointer
+        delete subsets;
+        subsets = next_subsets;
+        next_subsets = new set<set<vertex_id> >; 
     }
 }
 
@@ -223,26 +267,33 @@ int main()
     // Test sample
     Simple_Graph g;
 
-    for (int i = 1; i <= 6; i++)
+    int n = 30;
+
+    for (int i = 1; i <= n; i++)
         g.add_vertex(i);
 
-    g.add_edge(1, 2);
-    g.add_edge(1, 3);
-    g.add_edge(2, 3);
-    g.add_edge(2, 4);
-    g.add_edge(2, 5);
-    g.add_edge(2, 6);
-    
+    for (int i = 1; i <= n; i++)
+    {
+        for (int j = 1; j <= n; j++)
+            g.add_edge(i, j);
+    }
+
     set<vertex_id> cover;
 
     g.optimal_vc( cover );
 
-    cout << "Vertex Cover:" << endl;
-    for (set<vertex_id>::const_iterator it = cover.begin(); it != cover.end(); it++)
+    cout << "Vertex Cover: {";
+    
+    set<vertex_id>::const_iterator it = cover.begin();
+    cout << *it;
+    it++;
+
+    while( it != cover.end() )
     {
-        cout << " " << *it;
+        cout << ", " << *it;
+        it++;
     }
-    cout << endl;
+    cout << "}" << endl;
 
     return 0;
 }

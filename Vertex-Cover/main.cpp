@@ -1,8 +1,11 @@
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <set>
 #include <stdexcept>
 #include <sstream>
+#include <time.h>
+#include <vector>
 
 using std::cout;
 using std::endl;
@@ -11,6 +14,7 @@ using std::map;
 using std::string;
 using std::stringstream;
 using std::set;
+using std::vector;
 
 
 // ============================================================================
@@ -20,15 +24,11 @@ using std::set;
 typedef unsigned int vertex_id;
 
 class Simple_Graph {
-private:
-    map<vertex_id, set<vertex_id> > graph;
-
-    bool is_valid_cover(const set<vertex_id> &combination);
-    
-    vertex_id greatest_degree_vertex(
-        const map<vertex_id, set<vertex_id> > &graph);
-
 public:
+    void clear() { graph.clear(); }
+
+    void clear_edges();
+    
     void add_vertex(vertex_id id);
 
     void add_edge(vertex_id a, vertex_id b);
@@ -37,6 +37,15 @@ public:
 
     void optimal_vc(set<vertex_id> &cover);
 
+    string to_string();
+
+private:
+    map<vertex_id, set<vertex_id> > graph;
+
+    bool is_valid_cover(const set<vertex_id> &combination);
+    
+    vertex_id greatest_degree_vertex(
+        const map<vertex_id, set<vertex_id> > &graph);
 };
 
 // ============================================================================
@@ -46,6 +55,44 @@ public:
 // ============================================================================
 // =========================== FUNCTION DEFINITIONS ===========================
 // ============================================================================
+
+string Simple_Graph::to_string()
+{
+    stringstream ss;
+    for (map<vertex_id, set<vertex_id> >::const_iterator i = graph.begin();
+        i != graph.end(); i++)
+    {
+        if ( i != graph.begin() ) { ss << endl; };
+
+        vertex_id current = i->first;
+        const set<vertex_id>& adjacent = i->second;
+
+        ss << current << ": ";
+
+        for(set<vertex_id>::const_iterator j = adjacent.begin();
+            j != adjacent.end(); j++) 
+        {
+            if ( j != adjacent.begin() )
+                ss << ", ";
+            
+            ss << *j;
+        }
+        
+    }
+
+    return ss.str();
+}
+
+
+void Simple_Graph::clear_edges()
+{
+    for(map<vertex_id, set<vertex_id> >::iterator it = graph.begin();
+        it != graph.end(); it++)
+    {
+        it->second.clear();
+    } 
+}
+
 
 void Simple_Graph::add_vertex(vertex_id id)
 {
@@ -252,7 +299,136 @@ bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination)
 // ======================== GRAPH GENERATION FUNCTIONS ========================
 // ============================================================================
 
-// TODO...
+vertex_id pick_random(const set<vertex_id>& vertex_set)
+{
+    const set<vertex_id>::size_type rand_idx = rand() % vertex_set.size();
+
+    // Advance it to the element at position rand_idx
+    set<vertex_id>::const_iterator it = vertex_set.begin();
+    for ( set<vertex_id>::size_type i = 0; i < rand_idx; i++ )
+        it++;
+
+    return *it;
+}
+
+
+vector<vertex_id> loop_erasing_random_walk(
+    const set<vertex_id>& tree_vertices, const set<vertex_id>& vertex_set)
+{
+    vector<vertex_id> walk;
+    map<vertex_id, vertex_id> parent_map;
+
+    // Check if there are vertices which are not part of the tree
+    if ( tree_vertices.size() == vertex_set.size() )
+        return walk;
+
+    // Pick a random unused vertex as the start vertex
+    vertex_id current = pick_random(vertex_set);
+
+    while( tree_vertices.find(current) != tree_vertices.end() )
+        current = pick_random(vertex_set);
+    
+    // Iterate until we have arrived at a vertex that is part of the tree
+    while ( tree_vertices.find(current) == tree_vertices.end() )
+    {
+        // Pick another vertex to be the next in the walk
+        vertex_id neighbour = pick_random(vertex_set);
+        
+        while( neighbour == current)
+            neighbour = pick_random(vertex_set);
+
+        /*  Check if the selected vertex is already in the walk. If so, we have
+            found a loop and must remove it */
+        if ( parent_map.find(neighbour) != parent_map.end() )
+        {
+            vertex_id last_valid = neighbour;
+
+            // Go back through the walk, removing the loop
+            while ( current != last_valid )
+            {
+                vertex_id parent = parent_map[current];
+                parent_map.erase(current);
+                current = parent;
+            }
+        }
+        // The selected vertex is a new vertex, so we need only update the state
+        else
+        {
+            parent_map[neighbour] = current;
+            current = neighbour;
+        }
+    }
+
+    // ===== Transfer the random walk to the return vector =====
+    walk.resize( parent_map.size() + 1 );
+
+    for (vector<vertex_id>::iterator rev_it = walk.begin();
+        rev_it != walk.end(); rev_it++)
+    {
+        *rev_it = current;
+        current = parent_map[current];
+    }
+    // =========================================================
+
+    return walk;
+}
+
+
+void wilson_spanning_tree(Simple_Graph& graph, unsigned int num_vertices)
+{
+    graph.clear_edges();
+
+    // Create the vertex set
+    set<vertex_id> vertex_set;
+    for (unsigned int i = 1; i <= num_vertices; i++)
+        vertex_set.insert(i);
+
+    // Create the set of vertices used in the spanning tree
+    set<vertex_id> tree_vertices;
+    // Add vertex 1 as the root
+    tree_vertices.insert(1);
+
+    vector<vertex_id> walk = loop_erasing_random_walk(tree_vertices, vertex_set);
+    while( !walk.empty() )
+    {
+        tree_vertices.insert( walk.begin(), walk.end() );
+
+        for (vector<vertex_id>::size_type i = 0; i < walk.size() - 1; i++)
+            graph.add_edge( walk[i], walk[i+1] );
+
+        walk = loop_erasing_random_walk(tree_vertices, vertex_set);
+    }
+}
+
+
+void add_random_edges(Simple_Graph& graph, unsigned int num_vertices, 
+    unsigned int target_num_edges)
+{
+
+}
+
+
+void generate_graph(Simple_Graph& graph, unsigned int num_vertices, 
+    unsigned int num_edges)
+{
+    if (num_edges < num_vertices - 1)
+    {
+        stringstream ss;
+        ss << "A graph with |V| = " << num_vertices << " and |E| = " << 
+            num_edges << "cannot be connected" << endl;
+        throw logic_error( ss.str() );
+    }
+
+    // Add the specified number of vertices
+    for (unsigned int i = 1; i <= num_vertices; i++)
+        graph.add_vertex(i);
+
+    // Generate a random spanning tree to ensure the graph is connected
+    wilson_spanning_tree(graph, num_vertices);
+
+    // Add random edges to achieve the specified density
+    add_random_edges(graph, num_vertices, num_edges);
+}
 
 // ============================================================================
 
@@ -264,36 +440,18 @@ bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination)
 
 int main()
 {
-    // Test sample
+
+    int n = 10;
+
+    srand( time(NULL) );
+
     Simple_Graph g;
-
-    int n = 30;
-
-    for (int i = 1; i <= n; i++)
+    for (vertex_id i = 1; i <= n; i++)
         g.add_vertex(i);
 
-    for (int i = 1; i <= n; i++)
-    {
-        for (int j = 1; j <= n; j++)
-            g.add_edge(i, j);
-    }
+    wilson_spanning_tree(g, n);
 
-    set<vertex_id> cover;
-
-    g.optimal_vc( cover );
-
-    cout << "Vertex Cover: {";
-    
-    set<vertex_id>::const_iterator it = cover.begin();
-    cout << *it;
-    it++;
-
-    while( it != cover.end() )
-    {
-        cout << ", " << *it;
-        it++;
-    }
-    cout << "}" << endl;
+    cout << g.to_string();
 
     return 0;
 }

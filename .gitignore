@@ -1,3 +1,5 @@
 *.exe
 .DS_Store
 Hierholzer/bin/
+Vertex-Cover/Vertex-Cover/intermediate/
+Vertex-Cover/Vertex-Cover/output/

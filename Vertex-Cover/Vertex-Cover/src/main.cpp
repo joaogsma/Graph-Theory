@@ -1,40 +1,47 @@
 #include <algorithm>
+#include <chrono>
+#include <fstream>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <random>
 #include <set>
 #include <stdexcept>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
-using std::cout;				using std::random_device;
-using std::endl;				using std::sort;
-using std::istream;				using std::string;
-using std::logic_error;			using std::stringstream;
-using std::map;					using std::set;
-using std::mt19937;				using std::vector;
-using std::pair;
+using std::chrono::duration;		using std::mutex;
+using std::chrono::duration_cast;	using std::pair;
+using std::chrono::steady_clock;	using std::random_device;
+using std::cout;					using std::runtime_error;
+using std::endl;					using std::sort;
+using std::fstream;					using std::string;
+using std::ostream;					using std::stringstream;
+using std::logic_error;				using std::set;
+using std::map;						using std::thread;
+using std::mt19937;					using std::vector;
+
 
 typedef unsigned int vertex_id;
 
+static unsigned int finished_cout = 0;
+static const unsigned int num_repetitions = 300;
+static fstream output_file;
 static random_device rd;
 static mt19937 mt( rd() );
+static mutex lock;
 
 // ============================================================================
 // ============================ CLASS DEFINITIONS =============================
 // ============================================================================
 
-struct Analysis_Info {
-	Simple_Graph graph;
-	set<vertex_id> greedy_cover;
-	set<vertex_id> optimal_cover;
-};
-
-
 class Simple_Graph {
 public:
-    void clear() { graph.clear(); }
+	const map<vertex_id, set<vertex_id> >& edges() const { return graph; }
+    
+	void clear() { graph.clear(); }
 
     void clear_edges();
     
@@ -47,6 +54,8 @@ public:
     void optimal_vertex_cover(set<vertex_id> &cover) const;
 
     string to_string() const;
+
+	string to_string_output() const;
 
     void generate_as_random(unsigned int num_vertices, unsigned int num_edges);
 
@@ -68,6 +77,13 @@ private:
 
     void wilson_spanning_tree(const set<vertex_id>& vertex_set);
 
+};
+
+
+struct Analysis_Info {
+	Simple_Graph graph;
+	set<vertex_id> greedy_cover;
+	set<vertex_id> optimal_cover;
 };
 
 // ============================================================================
@@ -103,6 +119,32 @@ string Simple_Graph::to_string() const
     }
 
     return ss.str();
+}
+
+
+string Simple_Graph::to_string_output() const
+{
+	stringstream ss;
+	for (map<vertex_id, set<vertex_id> >::const_iterator i = graph.begin();
+		i != graph.end(); i++)
+	{
+		if (i != graph.begin()) { ss << endl; };
+
+		vertex_id current = i->first;
+		const set<vertex_id>& adjacent = i->second;
+
+		for (set<vertex_id>::const_iterator j = adjacent.begin();
+			j != adjacent.end(); j++)
+		{
+			if (j != adjacent.begin())
+				ss << " ";
+
+			ss << *j;
+		}
+
+	}
+
+	return ss.str();
 }
 
 
@@ -520,8 +562,103 @@ bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination) const
 // =========================== ANALYSIS FUNCTIONS =============================
 // ============================================================================
 
-void run_analysis(istream& stream, unsigned int num_repetitions, 
-	const vector<pair<unsigned int, unsigned int> >& configurations)
+bool compare(const Analysis_Info& a, const Analysis_Info& b)
+{
+	double opt_dist_a = static_cast<double>(a.greedy_cover.size()) /
+		a.optimal_cover.size();
+	double opt_dist_b = static_cast<double>(b.greedy_cover.size()) /
+		b.optimal_cover.size();
+
+	return opt_dist_a > opt_dist_b;
+}
+
+
+struct Thread_Params {
+	unsigned int num_vertices, num_edges;
+	vector<Analysis_Info> *worst_graphs;
+	double *sum;
+};
+
+void run_iteration(Thread_Params params) {
+	// Initialize the graph randomly
+	Simple_Graph g;
+	g.generate_as_random(params.num_vertices, params.num_edges);
+
+	// Compute the optimal vertex cover through brute-force
+	set<vertex_id> optimal_cover;
+	g.optimal_vertex_cover(optimal_cover);
+
+	// Compute the vertex cover though the greedy approach
+	set<vertex_id> greedy_cover;
+	g.greedy_vertex_cover(greedy_cover);
+
+	double opt_dist = static_cast<double>(greedy_cover.size()) / optimal_cover.size();
+
+	Analysis_Info analysis;
+	analysis.graph = g;
+	analysis.greedy_cover = greedy_cover;
+	analysis.optimal_cover = optimal_cover;
+
+	// ===== Exclusive Zone =====
+	lock.lock();
+	
+	cout << ++finished_cout << endl;
+
+	(*params.sum) += opt_dist;
+	params.worst_graphs->push_back(analysis);
+
+	// Keep only the 3 worst seen so far
+	if (params.worst_graphs->size() > 3)
+	{
+		sort(params.worst_graphs->begin(), params.worst_graphs->end(), compare);
+		params.worst_graphs->resize(3);
+	}
+	
+	lock.unlock();
+	// ==========================
+}
+
+
+double analyze_category(unsigned int num_vertices,
+	unsigned int num_edges, vector<Analysis_Info>& worst_graphs)
+{
+	worst_graphs.clear();
+
+	double sum = 0;
+
+	vector<thread> thread_pool;
+
+	for (unsigned int iteration = 0; iteration < num_repetitions; iteration++)
+	{
+		Thread_Params params;
+		params.num_vertices = num_vertices;
+		params.num_edges = num_edges;
+		params.sum = &sum;
+		params.worst_graphs = &worst_graphs;
+		
+		thread_pool.push_back( thread(run_iteration, params) );
+
+		if (thread_pool.size() == 8)
+		{
+			// Wait for the 8 current threads
+			for (int i = 0; i < thread_pool.size(); i++)
+				thread_pool[i].join();
+
+			thread_pool.clear();
+		}
+	}
+
+	// Wait for remaining threads
+	for (int i = 0; i < thread_pool.size(); i++)
+		thread_pool[i].join();
+
+	finished_cout = 0;
+
+	return sum / num_repetitions;
+}
+
+
+void run_analysis(const vector<pair<unsigned int, unsigned int> >& configurations)
 {
 	typedef vector<pair<unsigned int, unsigned int>>::const_iterator config_c_it;
 	for (config_c_it it = configurations.begin(); it != configurations.end(); it++)
@@ -530,69 +667,65 @@ void run_analysis(istream& stream, unsigned int num_repetitions,
 		unsigned int num_edges = it->second;
 		
 		vector<Analysis_Info> worst_graphs;
-		double average = analyze_category(num_repetitions, num_vertices, 
-			num_edges, worst_graphs);
+		double average = analyze_category(num_vertices, num_edges, worst_graphs);
 
 		double worst_opt_dist = static_cast<double>(worst_graphs[0].greedy_cover.size()) /
 			worst_graphs[0].optimal_cover.size();
 		
-		// TODO: report results
-	}
-}
+		stringstream ss;
 
+		// ===== Print configuration and worst distance to optimal =====
+		ss << "========== Configuração: |V| = " << num_vertices << ", |E| = " << 
+			num_edges << " ==========" << endl;
+		ss << "Distância média para o ótimo: " << average << endl;
+		ss << "Maior distância para o ótimo: " << worst_opt_dist << endl;
+		// =============================================================
 
-bool compare(const Analysis_Info& a, const Analysis_Info& b)
-{
-	double opt_dist_a = static_cast<double>(a.greedy_cover.size()) / 
-		a.optimal_cover.size();
-	double opt_dist_b = static_cast<double>(b.greedy_cover.size()) / 
-		b.optimal_cover.size();
+		ss << endl;
 
-	return opt_dist_a > opt_dist_b;
-}
-
-
-double analyze_category(unsigned int num_repetitions, unsigned int num_vertices, 
-	unsigned int num_edges, vector<Analysis_Info>& worst_graphs)
-{
-	worst_graphs.clear();
-
-	double sum = 0;
-
-	for (unsigned int iteration = 0; iteration < num_repetitions; iteration++)
-	{
-		// Initialize the graph randomly
-		Simple_Graph g;
-		g.generate_as_random(num_vertices, num_edges);
-
-		// Compute the optimal vertex cover through brute-force
-		set<vertex_id> optimal_cover;
-		g.optimal_vertex_cover(optimal_cover);
-
-		// Compute the vertex cover though the greedy approach
-		set<vertex_id> greedy_cover;
-		g.greedy_vertex_cover(greedy_cover);
-
-		double opt_dist = static_cast<double>( greedy_cover.size() ) / optimal_cover.size();
-
-		sum += opt_dist;
-
-		Analysis_Info analysis;
-		analysis.graph = g;
-		analysis.greedy_cover = greedy_cover;
-		analysis.optimal_cover = optimal_cover;
-
-		worst_graphs.push_back(analysis);
-		
-		// Keep only the 3 worst seen so far
-		if ( worst_graphs.size() > 3 )
+		for (vector<Analysis_Info>::const_iterator worst_it = worst_graphs.begin();
+			worst_it != worst_graphs.end(); worst_it++)
 		{
-			sort(worst_graphs.begin(), worst_graphs.end(), compare);
-			worst_graphs.resize(3);
-		}
-	}
+			ss << "Número de vértices = " << worst_it->graph.edges().size() << endl <<
+				worst_it->graph.to_string_output() << endl;
 
-	return sum / 300;
+			// ===== Print the greedy solution set to the output stream =====
+			ss << "Solução Gulosa: {";
+			for (set<vertex_id>::const_iterator greedy_sol_it = worst_it->greedy_cover.begin();
+				greedy_sol_it != worst_it->greedy_cover.end(); greedy_sol_it++)
+			{
+				if (greedy_sol_it != worst_it->greedy_cover.begin())
+					ss << ", ";
+				ss << *greedy_sol_it;
+			}
+			ss << "}" << endl;
+			// ==============================================================
+
+
+			// ===== Print the optimal solution set to the output stream =====
+			ss << "Solução Ótima: {";
+			for (set<vertex_id>::const_iterator opt_sol_it = worst_it->optimal_cover.begin();
+				opt_sol_it != worst_it->optimal_cover.end(); opt_sol_it++)
+			{
+				if (opt_sol_it != worst_it->optimal_cover.begin())
+					ss << ", ";
+				ss << *opt_sol_it;
+			}
+			ss << "}" << endl;
+			// ===============================================================
+
+			ss << endl;
+
+		}
+
+		// Write to file, throw runtime_error if cannot write
+		if (!(output_file << ss.str()))
+			throw runtime_error("Could not write to output file");
+		
+		cout << "Finished a category" << endl;
+
+		output_file.flush();
+	}
 }
 
 // ============================================================================
@@ -606,21 +739,43 @@ double analyze_category(unsigned int num_repetitions, unsigned int num_vertices,
 int main()
 {
 	try {
-		unsigned int num_repetitions = 300;
-
 		vector< pair<unsigned int, unsigned int> > configurations;
-		configurations.push_back(pair<unsigned int, unsigned int>(15, 30));
-		configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
-		configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
-		configurations.push_back(pair<unsigned int, unsigned int>(15, 57));
+		//configurations.push_back(pair<unsigned int, unsigned int>(15, 30));
+		//configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
+		//configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
+		//configurations.push_back(pair<unsigned int, unsigned int>(15, 57));
+		
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 40));
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 60));
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 80));
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 100));
+		
+		
+		output_file.open("GVC_jgsma_output.txt", fstream::out);
+		
+		steady_clock::time_point begin_time = steady_clock::now();
 
+		run_analysis(configurations);
 
+		steady_clock::time_point end_time = steady_clock::now();
 
+		int elapsed_time_hours = duration_cast<std::chrono::hours>(
+			end_time - begin_time).count();
 
+		int elapsed_time_minutes = duration_cast<std::chrono::minutes>(
+			end_time - begin_time).count() - elapsed_time_hours*60;
+
+		int elapsed_time_seconds = duration_cast<std::chrono::seconds>(
+			end_time - begin_time).count() - elapsed_time_hours*3600 - 
+			elapsed_time_minutes*60;
+
+		cout << "TEMPO DE EXECUÇÃO: " << elapsed_time_hours << " horas, " << 
+			elapsed_time_minutes << " minutos e "  << elapsed_time_seconds << 
+			" segundos" << endl;
+
+		output_file.close();
+
+		system("pause");
 	}
 	catch (std::exception& e)
 	{

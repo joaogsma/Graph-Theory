@@ -736,14 +736,15 @@ void run_analysis(const vector<pair<unsigned int, unsigned int> >& configuration
 // ============================== MAIN FUNCTION ===============================
 // ============================================================================
 
+/*
 int main()
 {
 	try {
 		vector< pair<unsigned int, unsigned int> > configurations;
-		//configurations.push_back(pair<unsigned int, unsigned int>(15, 30));
-		//configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
-		//configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
-		//configurations.push_back(pair<unsigned int, unsigned int>(15, 57));
+		configurations.push_back(pair<unsigned int, unsigned int>(15, 30));
+		configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
+		configurations.push_back(pair<unsigned int, unsigned int>(15, 45));
+		configurations.push_back(pair<unsigned int, unsigned int>(15, 57));
 		
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 40));
 		configurations.push_back(pair<unsigned int, unsigned int>(20, 60));
@@ -784,5 +785,5 @@ int main()
 
 	return 0;
 }
-
+*/
 // ============================================================================

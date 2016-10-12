@@ -8,10 +8,15 @@ using std::cout;
 using std::endl;
 
 
-int main()
+/*	The graph drawer used is the one availeable at:
+	http://g.ivank.net/ */
+
+int to_graph_drawer_format()
 {
 	string in;
 	string out;
+
+	cout << "Type the graph string followed by a EOF (Ctrl + Z in Windows):" << endl;
 
 	int line = 0;
 	while( std::getline(cin, in) )

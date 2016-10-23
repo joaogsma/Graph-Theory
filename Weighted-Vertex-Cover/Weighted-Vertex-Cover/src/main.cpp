@@ -24,6 +24,7 @@ using std::random_device;
 using std::random_shuffle;
 using std::runtime_error;
 using std::sort;
+using std::stable_partition;
 using std::string;
 using std::stringstream;
 using std::set;
@@ -61,14 +62,30 @@ public:
 
 	string to_string_output() const;
 
+    void generate_as_random(unsigned int num_vertices, unsigned int num_edges,
+        unsigned int max_weight);
+
+
 private:
     map<vertex_id, set<vertex_id> > graph;
     map<vertex_id, unsigned int> weights;
 
-    bool is_valid_cover(const set<vertex_id> &combination) const;
-    
+    bool equal_weights(const pair<vertex_id, vertex_id>& edge) const;
+
     vertex_id greatest_ratio_vertex(
         const map<vertex_id, set<vertex_id> > &graph) const;
+
+    void pricing_vertex_cover( set<vertex_id>& cover, bool improved ) const;
+
+    vertex_id pick_random(const set<vertex_id>& vertex_set) const;
+    
+    void add_random_edges(const set<vertex_id>& vertex_set, 
+        unsigned int num_new_edges);
+    
+    vector<vertex_id> loop_erasing_random_walk(
+        const set<vertex_id>& tree_vertices, const set<vertex_id>& vertex_set) const;
+
+    void wilson_spanning_tree(const set<vertex_id>& vertex_set);
 };
 
 // ============================================================================
@@ -88,9 +105,10 @@ string Simple_Graph::to_string() const
         if ( i != graph.begin() ) { ss << endl; };
 
         vertex_id current = i->first;
+        unsigned int weight = weights.at(current);
         const set<vertex_id>& adjacent = i->second;
 
-        ss << current << ": ";
+        ss << current << " (w. " << weight << ")" << ": ";
 
         for(set<vertex_id>::const_iterator j = adjacent.begin();
             j != adjacent.end(); j++) 
@@ -136,17 +154,29 @@ string Simple_Graph::to_string_output() const
 vertex_id Simple_Graph::greatest_ratio_vertex(
     const map<vertex_id, set<vertex_id> > &graph) const
 {
-    double best_ratio = 0;
+    double best_ratio = -1;
     vertex_id best_vertex;
     typedef map<vertex_id, set<vertex_id> >::const_iterator vertex_iterator;
-        
+    
+    #ifdef _DEBUG
+    cout << "Vertices:" << endl;
+    #endif
+
     for(vertex_iterator v_it = graph.begin(); v_it != graph.end(); v_it++)
     {
         vertex_id current_vertex = v_it->first;
         set<vertex_id>::size_type degree = v_it->second.size();
 
-		unsigned int vertex_weight = weights.find(current_vertex)->second;
+		double vertex_weight = weights.find(current_vertex)->second;
 		double ratio = degree / vertex_weight;
+
+        #ifdef _DEBUG
+        cout << "    Vertex: " << current_vertex << endl;
+        cout << "    Degree: " << degree << endl;
+        cout << "    Weight: " << vertex_weight << endl;
+        cout << "    Ratio: " << ratio << endl;
+        cout << endl;
+        #endif
 
         if ( ratio > best_ratio )
         {
@@ -156,6 +186,15 @@ vertex_id Simple_Graph::greatest_ratio_vertex(
     }
 
     return best_vertex;
+}
+
+
+bool Simple_Graph::equal_weights(const pair<vertex_id, vertex_id>& edge) const
+{
+    vertex_id vertex1 = edge.first;
+    vertex_id vertex2 = edge.second;
+
+    return weights.at(vertex1) == weights.at(vertex2);
 }
 
 // ============================================================================
@@ -222,6 +261,192 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
     graph[b].insert(a);
 }
 
+
+vertex_id Simple_Graph::pick_random(const set<vertex_id>& vertex_set) const
+{
+    std::uniform_int_distribution<set<vertex_id>::size_type> dist( 0, vertex_set.size() - 1 );
+    const set<vertex_id>::size_type rand_idx = dist(mt);
+
+    // Advance it to the element at position rand_idx
+    set<vertex_id>::const_iterator it = vertex_set.begin();
+    for ( set<vertex_id>::size_type i = 0; i < rand_idx; i++ )
+        it++;
+
+    return *it;
+}
+
+
+vector<vertex_id> Simple_Graph::loop_erasing_random_walk(
+    const set<vertex_id>& tree_vertices, const set<vertex_id>& vertex_set) const
+{
+    vector<vertex_id> walk;
+    map<vertex_id, vertex_id> parent_map;
+
+    // Check if there are vertices which are not part of the tree
+    if ( tree_vertices.size() == vertex_set.size() )
+        return walk;
+
+    // Pick a random unused vertex as the start vertex
+    vertex_id current = pick_random(vertex_set);
+
+    while( tree_vertices.find(current) != tree_vertices.end() )
+        current = pick_random(vertex_set);
+    
+    // Iterate until we have arrived at a vertex that is part of the tree
+    while ( tree_vertices.find(current) == tree_vertices.end() )
+    {
+        // Pick another vertex to be the next in the walk
+        vertex_id neighbour = pick_random(vertex_set);
+        
+        while( neighbour == current)
+            neighbour = pick_random(vertex_set);
+
+        /*  Check if the selected vertex is already in the walk. If so, we have
+            found a loop and must remove it */
+        if ( parent_map.find(neighbour) != parent_map.end() )
+        {
+            vertex_id last_valid = neighbour;
+
+            // Go back through the walk, removing the loop
+            while ( current != last_valid )
+            {
+                vertex_id parent = parent_map[current];
+                parent_map.erase(current);
+                current = parent;
+            }
+        }
+        // The selected vertex is a new vertex, so we need only update the state
+        else
+        {
+            parent_map[neighbour] = current;
+            current = neighbour;
+        }
+    }
+
+    // ===== Transfer the random walk to the return vector =====
+    walk.resize( parent_map.size() + 1 );
+
+    for (vector<vertex_id>::iterator rev_it = walk.begin();
+        rev_it != walk.end(); rev_it++)
+    {
+        *rev_it = current;
+        current = parent_map[current];
+    }
+    // =========================================================
+
+    return walk;
+}
+
+
+void Simple_Graph::wilson_spanning_tree(const set<vertex_id>& vertex_set)
+{
+    // Create the set of vertices used in the spanning tree
+    set<vertex_id> tree_vertices;
+    // Add vertex 1 as the root
+    tree_vertices.insert(1);
+
+    vector<vertex_id> walk = loop_erasing_random_walk(tree_vertices, vertex_set);
+    while( !walk.empty() )
+    {
+        tree_vertices.insert( walk.begin(), walk.end() );
+
+        for (vector<vertex_id>::size_type i = 0; i < walk.size() - 1; i++)
+            add_edge( walk[i], walk[i+1] );
+
+        walk = loop_erasing_random_walk(tree_vertices, vertex_set);
+    }
+}
+
+
+void Simple_Graph::add_random_edges(const set<vertex_id>& vertex_set, 
+    unsigned int num_new_edges)
+{
+    /*  Store all the vertices that can still support new edges. A vertex will be 
+        removed from this set if it already has |V|-1 edges, i.e., it has an edge 
+        to every other vertex */
+    set<vertex_id> available_vertices = vertex_set;
+
+    while( num_new_edges > 0  && available_vertices.size() > 0)
+    {
+        // ===== Pick two different vertices =====
+        vertex_id vertex1 = pick_random(available_vertices);
+        
+        /*  Compute the set of available vertices not adjacent to vertex1. 
+            These are the options that can have an edge to vertex1 */
+        set<vertex_id> not_adjacent = available_vertices;
+        not_adjacent.erase( vertex1 );
+        set<vertex_id>& vertex1_adjacent = graph[vertex1];
+        
+        for (set<vertex_id>::const_iterator it = vertex1_adjacent.begin();
+            it != vertex1_adjacent.end(); it++)
+        {
+            // Check if the vertex *it is an available one
+            set<vertex_id>::iterator pos = not_adjacent.find( *it );
+            /*  If the vertex *it is no longer available, remove it from 
+                the not_adjacent list */
+            if ( pos != not_adjacent.end() )
+                not_adjacent.erase( pos );
+        }
+
+        vertex_id vertex2 = pick_random(not_adjacent);
+
+        // =======================================
+
+        set<vertex_id>& vertex2_adjacent = graph[vertex2];
+        
+        vertex1_adjacent.insert(vertex2);
+        vertex2_adjacent.insert(vertex1);
+
+        if ( vertex1_adjacent.size() == vertex_set.size() - 1 )
+            available_vertices.erase( vertex1 );
+        if ( vertex2_adjacent.size() == vertex_set.size() - 1 )
+            available_vertices.erase(vertex2);
+
+        
+        num_new_edges--;
+    }
+}
+
+
+void Simple_Graph::generate_as_random(unsigned int num_vertices, 
+    unsigned int num_edges, unsigned int max_weight)
+{
+    if (num_edges < num_vertices - 1)
+    {
+        stringstream ss;
+        ss << "A graph with |V| = " << num_vertices << " and |E| = " << 
+            num_edges << "cannot be connected" << endl;
+        throw logic_error( ss.str() );
+    }
+ 
+    if (num_edges > num_vertices * (num_vertices - 1) / 2)
+    {
+        stringstream ss;
+        ss << "A graph with |V| = " << num_vertices << " can have to most " << 
+            (num_vertices * (num_vertices - 1) / 2) << " edges" << endl;
+        throw logic_error( ss.str() );
+    }
+
+    clear();
+
+    set<vertex_id> vertex_set;
+    uniform_int_distribution<unsigned int> weight_dist(1, max_weight);
+
+    // Add the specified number of vertices to both the graph and the vertex set
+    for (unsigned int i = 1; i <= num_vertices; i++)
+    {
+        add_vertex(i, weight_dist(mt));
+        vertex_set.insert(i);
+    }
+
+    // Generate a random spanning tree to ensure the graph is connected
+    wilson_spanning_tree(vertex_set);
+
+    /*  Add random edges to achieve the specified density. So far, there are
+        num_vertices-1 edges, since the graph is a tree */
+    add_random_edges(vertex_set, num_edges - (num_vertices-1));
+}
+
 // ============================================================================
 
 
@@ -246,20 +471,25 @@ void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
     while( !graph_copy.empty() )
     {
         // Find the vertex with the greatest degree/weight ratio
-        vertex_id gdv = greatest_ratio_vertex(graph_copy);
-        
-        cover.insert( gdv );
+        vertex_id grv = greatest_ratio_vertex(graph_copy);
+
+        #ifdef _DEBUG
+        cout << "Greatest ratio vertex: " << grv << endl;
+        cout << "********************" << endl << endl;
+        #endif
+
+        cover.insert( grv );
         
         /*  Remove the greatest ratio vertex from the adjacency list of each
             of its adjacent vertices */
-        set<vertex_id> &adj_vertices = graph_copy[gdv];
+        set<vertex_id> &adj_vertices = graph_copy[grv];
         for (set<vertex_id>::const_iterator adj_vertex_it = adj_vertices.begin();
             adj_vertex_it != adj_vertices.end(); adj_vertex_it++)
         {
             vertex_id adj_vertex = *adj_vertex_it;
             set<vertex_id> &adj_vertex_edges = graph_copy[adj_vertex];
             
-            adj_vertex_edges.erase( gdv );
+            adj_vertex_edges.erase( grv );
             
             // If the vertex has become isolated, remove it from graph_copy
             if ( adj_vertex_edges.empty() )
@@ -267,12 +497,24 @@ void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
         }
 
         // Remove the greatest degree vertex from the graph
-        graph_copy.erase( gdv );
+        graph_copy.erase( grv );
     }
 }
 
 
 void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
+{
+    pricing_vertex_cover(cover, false); 
+}
+
+
+void Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover) const
+{
+    pricing_vertex_cover(cover, true); 
+}
+
+
+void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) const
 {
     typedef pair<vertex_id, vertex_id> edge;
 
@@ -302,7 +544,34 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
     // Vector containing all the edges
     vector<edge> edge_vec( edge_set.begin(), edge_set.end() );
 
+#ifdef _DEBUG
+    cout << "Edge vector:" << endl;
+    for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+        cout << "  (" << it->first << ", " << it->second << ")" << endl;
+#endif
+
     random_shuffle(edge_vec.begin(), edge_vec.end(), rand_uint);
+
+#ifdef _DEBUG
+    cout << "Shuffled edge vector:" << endl;
+    for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+        cout << "  (" << it->first << ", " << it->second << ")" << endl;
+#endif
+
+    /*  Improved pricing heuristic. This heuristic partitions the vector in such
+        a way that all edges whose vertices have different weights will be chosen
+        before edges whose vertices have equal weights */
+    if (improved)
+    {
+        stable_partition(edge_vec.begin(), edge_vec.end(), 
+            [this] (const pair<vertex_id, vertex_id>& edge) { return this->equal_weights(edge); } );
+        
+#ifdef _DEBUG
+        cout << "Edge vector after heuristic:" << endl;
+        for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+            cout << "  (" << it->first << ", " << it->second << ")" << endl;
+#endif
+    }
     
     /*  Creates a map to keep track of how much of each vertex weight is 
         currently being used by incident edges. Each pair's first element is 
@@ -327,14 +596,27 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
 
         pair<unsigned int, unsigned int>& used_weight_v1 = used_weights[v1];
         pair<unsigned int, unsigned int>& used_weight_v2 = used_weights[v2];
-        
+
         // Compute the remaining price that edges incident in v1 and v2 can have
         unsigned int available_price_v1 = used_weight_v1.second - used_weight_v1.first;
         unsigned int available_price_v2 = used_weight_v2.second - used_weight_v2.first;
- 
+
+#ifdef _DEBUG
+        cout << "Edge: (" << v1 << ", " << v2 << ")" << endl;
+        cout << "    Price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
+        cout << "    Price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
+        cout << "    Available price (" << v1 << "): " << available_price_v1 << endl;
+        cout << "    Available price (" << v2 << "): " << available_price_v2 << endl;
+#endif
+
         // Ignore this edge if either v1 or v2 is tight
         if ( available_price_v1 == 0 || available_price_v2 == 0 )
+        {
+#ifdef _DEBUG
+            cout << "    **** Tight vertex ****" << endl;
+#endif
             continue;
+        }
 
         /*  Choose the price of this edge to be the minimum available price, so
             that the fairness condition is preserved */
@@ -343,6 +625,12 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
         // Increase the tightness of v1 and v2 by the price of the edge
         used_weight_v1.first += price;
         used_weight_v2.first += price;
+
+#ifdef _DEBUG
+        cout << "    Edge price: " << price << endl;
+        cout << "    New price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
+        cout << "    New price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
+#endif
     }
 
     cover.clear();
@@ -358,39 +646,6 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
         if ( used_weight == vertex_weight )
             cover.insert( current_vertex );
     }
-}
-
-
-void Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover) const
-{
-    // TODO...
-}
-
-
-bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination) const
-{
-    for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
-        it != graph.end(); it++)
-    {
-        vertex_id current_vertex = it->first;
-        const set<vertex_id> &edges = it->second;
-
-        // Continue if the current vertex is in combination
-        if ( combination.find(current_vertex) != combination.end() )
-            continue;
-
-        for (set<vertex_id>::const_iterator edge_it = edges.begin();
-            edge_it != edges.end(); edge_it++)
-        {
-            vertex_id other_vertex = *edge_it;
-
-            // Check if the second vertex is in combination
-            if ( combination.find(other_vertex) == combination.end() )
-                return false;   // Found an edge not covered           
-        }
-    }
-
-    return true;
 }
 
 // ============================================================================
@@ -412,6 +667,22 @@ bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination) const
 
 int main()
 {
-	return 0;
+	Simple_Graph g;
+
+    g.generate_as_random(5, 8, 10);
+
+    cout << g.to_string() << endl;
+        
+    set<vertex_id> cover;
+    g.improved_pricing_vertex_cover(cover);
+    
+    cout << "Vertex cover:" << endl;
+    for (auto it = cover.begin(); it != cover.end(); it++)
+    {
+        cout << *it << " ";
+    }
+    cout << endl;
+
+    return 0;
 }
 // ============================================================================

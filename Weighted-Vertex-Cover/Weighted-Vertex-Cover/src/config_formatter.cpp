@@ -11,7 +11,7 @@ using std::endl;
 /*	The graph drawer used is the one availeable at:
 	http://g.ivank.net/ */
 
-int to_graph_drawer_format()
+void to_graph_drawer_format()
 {
 	string in;
 	string out;
@@ -29,7 +29,7 @@ int to_graph_drawer_format()
 			out += ss.str();
 		}
 
-		for (int i = 0; i < in.size(); i++)
+		for (unsigned int i = 0; i < in.size(); i++)
 		{
 			if ( in[i] == ' ' )
 			{
@@ -50,5 +50,4 @@ int to_graph_drawer_format()
 	out = ss.str();
 
     cout << out << endl;
-
 }

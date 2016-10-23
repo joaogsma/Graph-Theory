@@ -6,7 +6,6 @@
 #include <set>
 #include <stdexcept>
 #include <sstream>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -28,7 +27,6 @@ using std::sort;
 using std::string;
 using std::stringstream;
 using std::set;
-using std::thread;
 using std::uniform_int_distribution;
 using std::vector;
 
@@ -49,7 +47,7 @@ public:
 
     void clear_edges();
     
-    void add_vertex(vertex_id id);
+    void add_vertex(vertex_id id, unsigned int weight);
 
     void add_edge(vertex_id a, vertex_id b);
 
@@ -57,7 +55,7 @@ public:
 
     void pricing_vertex_cover(set<vertex_id>& cover) const;
 
-    void improved_pricing_vertex_cover(set<verted_id>& cover) const;
+    void improved_pricing_vertex_cover(set<vertex_id>& cover) const;
 
     string to_string() const;
 
@@ -69,8 +67,6 @@ private:
 
     bool is_valid_cover(const set<vertex_id> &combination) const;
     
-    unsigned int rand_uint(unsigned int range_limit);
-
     vertex_id greatest_ratio_vertex(
         const map<vertex_id, set<vertex_id> > &graph) const;
 };
@@ -149,7 +145,8 @@ vertex_id Simple_Graph::greatest_ratio_vertex(
         vertex_id current_vertex = v_it->first;
         set<vertex_id>::size_type degree = v_it->second.size();
 
-        double ratio = degree / weights[current_vertex];
+		unsigned int vertex_weight = weights.find(current_vertex)->second;
+		double ratio = degree / vertex_weight;
 
         if ( ratio > best_ratio )
         {
@@ -233,6 +230,13 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
 // ========================= VERTEX COVER FUNCTIONS =========================
 // ============================================================================
 
+unsigned int rand_uint(unsigned int range_limit)
+{
+	uniform_int_distribution<unsigned int> dist(0, range_limit - 1);
+	return dist(mt);
+}
+
+
 void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
 {
     cover.clear();
@@ -268,7 +272,7 @@ void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
 }
 
 
-void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
+void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
 {
     typedef pair<vertex_id, vertex_id> edge;
 
@@ -287,8 +291,8 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
         {
             // Identify the incident vertices of smaller and greater id
             vertex_id adjacent_vertex = *set_it;
-            min_vertex = min(current_vertex, adjacent_vertex);
-            max_vertex = max(current_vertex, adjacent_vertex);
+            vertex_id min_vertex = min(current_vertex, adjacent_vertex);
+			vertex_id max_vertex = max(current_vertex, adjacent_vertex);
             
             // Add an edge to the edge set with the incident vertices ordered by id
             edge_set.insert( edge(min_vertex, max_vertex) );
@@ -296,7 +300,7 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
     }
 
     // Vector containing all the edges
-    vector<edge> > edge_vec( edge_set.begin(), edge_set.end() );
+    vector<edge> edge_vec( edge_set.begin(), edge_set.end() );
 
     random_shuffle(edge_vec.begin(), edge_vec.end(), rand_uint);
     
@@ -304,15 +308,15 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
         currently being used by incident edges. Each pair's first element is 
         the currently used weight, and the second element is the total vertex 
         weight */
-    map<vertex_id, pair<unsigned int, const unsigned int> > used_weights;
+    map<vertex_id, pair<unsigned int, unsigned int> > used_weights;
     
     // Initialize the used_weights map
     for (map<vertex_id, unsigned int>::const_iterator weight_it = weights.begin();
         weight_it != weights.end(); weight_it++)
     {
-        vertex_id = weights_it->first;
-        vertex_weight = weights_it->second;
-        used_weights[vertex_id] = make_pair(0, vertex_weight);
+        vertex_id current_vertex = weight_it->first;
+        unsigned int vertex_weight = weight_it->second;
+        used_weights[current_vertex] = make_pair(0, vertex_weight);
     }
 
     for (vector<edge>::const_reverse_iterator edge_it = edge_vec.rbegin();
@@ -321,14 +325,12 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
         vertex_id v1 = edge_it->first;
         vertex_id v2 = edge_it->second;
 
-        pair<unsigned int, const unsigned int>& used_weight_v1 = used_weights[v1];
-        pair<unsigned int, const unsigned int>& used_weight_v2 = used_weights[v2];
+        pair<unsigned int, unsigned int>& used_weight_v1 = used_weights[v1];
+        pair<unsigned int, unsigned int>& used_weight_v2 = used_weights[v2];
         
         // Compute the remaining price that edges incident in v1 and v2 can have
-        unsigned int available_price_v1 = used_weight_v1->second 
-            - used_weight_v1->first;
-        unsigned int available_price_v2 = used_weight_v2->second 
-            - used_weight_v2->first;
+        unsigned int available_price_v1 = used_weight_v1.second - used_weight_v1.first;
+        unsigned int available_price_v2 = used_weight_v2.second - used_weight_v2.first;
  
         // Ignore this edge if either v1 or v2 is tight
         if ( available_price_v1 == 0 || available_price_v2 == 0 )
@@ -339,8 +341,8 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
         unsigned int price = min( available_price_v1, available_price_v2 );
 
         // Increase the tightness of v1 and v2 by the price of the edge
-        used_weight_v1->first += price;
-        used_weight_v2->first += price;
+        used_weight_v1.first += price;
+        used_weight_v2.first += price;
     }
 
     cover.clear();
@@ -349,26 +351,19 @@ void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover>) const
         used_weights_it != used_weights.end(); used_weights_it++)
     {
         vertex_id current_vertex = used_weights_it->first;
-        unsigned int used_weight = used_weights_it->second->first;
-        unsigned int vertex_weight = used_weights_it->second->second;
+        unsigned int used_weight = used_weights_it->second.first;
+        unsigned int vertex_weight = used_weights_it->second.second;
 
         // If the vertex is tight, add it to the vertex cover
         if ( used_weight == vertex_weight )
-            cover.push_back( current_vertex );
+            cover.insert( current_vertex );
     }
 }
 
 
-void Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover>) const
+void Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover) const
 {
     // TODO...
-}
-
-
-unsigned int rand_uint(unsigned int range_limit)
-{
-    uniform_int_distribution<unsigned int> dist(0, limit-1);
-    return dist(mt);
 }
 
 

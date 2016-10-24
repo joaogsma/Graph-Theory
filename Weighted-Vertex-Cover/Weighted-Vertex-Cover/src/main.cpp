@@ -1,23 +1,30 @@
 #include <algorithm>
+#include <climits>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <random>
 #include <set>
 #include <stdexcept>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
+using std::cin;
 using std::cout;
 using std::endl;
-using std::fstream;
+using std::ifstream;
+using std::istream;
 using std::logic_error;
 using std::make_pair;
 using std::map;
 using std::max;
 using std::min;
 using std::mt19937;
+using std::mutex;
+using std::ofstream;
 using std::ostream;
 using std::pair;
 using std::random_device;
@@ -28,11 +35,23 @@ using std::stable_partition;
 using std::string;
 using std::stringstream;
 using std::set;
+using std::thread;
 using std::uniform_int_distribution;
 using std::vector;
 
 typedef unsigned int vertex_id;
 
+// Constants
+static int NUM_SIMULATIONS = 300;
+static const int NUM_THREADS = 8;
+static const bool SHUFFLE = false;
+static const bool DEBUG_MESSAGES = false;
+
+// Locks
+static mutex ostream_lock;
+static mutex statistics_lock;
+
+// Random number generation variables
 static random_device rd;
 static mt19937 mt( rd() );
 
@@ -52,11 +71,15 @@ public:
 
     void add_edge(vertex_id a, vertex_id b);
 
-    void greedy_vertex_cover(set<vertex_id> &cover) const;
+	void set_weight(vertex_id id, unsigned int weight);
 
-    void pricing_vertex_cover(set<vertex_id>& cover) const;
+	unsigned int optimal_vertex_cover(set<vertex_id>& cover) const;
 
-    void improved_pricing_vertex_cover(set<vertex_id>& cover) const;
+	unsigned int greedy_vertex_cover(set<vertex_id>& cover) const;
+
+	unsigned int pricing_vertex_cover(set<vertex_id>& cover) const;
+
+	unsigned int improved_pricing_vertex_cover(set<vertex_id>& cover) const;
 
     string to_string() const;
 
@@ -70,12 +93,14 @@ private:
     map<vertex_id, set<vertex_id> > graph;
     map<vertex_id, unsigned int> weights;
 
-    bool equal_weights(const pair<vertex_id, vertex_id>& edge) const;
+	bool is_valid_cover(const set<vertex_id> &combination) const;
+
+	bool equal_weights(const pair<vertex_id, vertex_id>& edge) const;
 
     vertex_id greatest_ratio_vertex(
         const map<vertex_id, set<vertex_id> > &graph) const;
 
-    void pricing_vertex_cover( set<vertex_id>& cover, bool improved ) const;
+	unsigned int pricing_vertex_cover( set<vertex_id>& cover, bool improved ) const;
 
     vertex_id pick_random(const set<vertex_id>& vertex_set) const;
     
@@ -102,8 +127,6 @@ string Simple_Graph::to_string() const
     for (map<vertex_id, set<vertex_id> >::const_iterator i = graph.begin();
         i != graph.end(); i++)
     {
-        if ( i != graph.begin() ) { ss << endl; };
-
         vertex_id current = i->first;
         unsigned int weight = weights.at(current);
         const set<vertex_id>& adjacent = i->second;
@@ -113,43 +136,40 @@ string Simple_Graph::to_string() const
         for(set<vertex_id>::const_iterator j = adjacent.begin();
             j != adjacent.end(); j++) 
         {
-            if ( j != adjacent.begin() )
-                ss << ", ";
-            
+            if ( j != adjacent.begin() ) 
+				ss << ", ";
             ss << *j;
         }
-        
+		ss << endl;
     }
 
     return ss.str();
 }
 
-
 string Simple_Graph::to_string_output() const
 {
 	stringstream ss;
+
+	ss << graph.size() << endl;
+
 	for (map<vertex_id, set<vertex_id> >::const_iterator i = graph.begin();
 		i != graph.end(); i++)
 	{
-		if (i != graph.begin()) { ss << endl; };
-
 		vertex_id current = i->first;
 		const set<vertex_id>& adjacent = i->second;
+
+		ss << weights.at(i->first);
 
 		for (set<vertex_id>::const_iterator j = adjacent.begin();
 			j != adjacent.end(); j++)
 		{
-			if (j != adjacent.begin())
-				ss << " ";
-
-			ss << *j;
+			ss << " " << *j;
 		}
-
+		ss << " 0" << endl;
 	}
 
 	return ss.str();
 }
-
 
 vertex_id Simple_Graph::greatest_ratio_vertex(
     const map<vertex_id, set<vertex_id> > &graph) const
@@ -158,9 +178,8 @@ vertex_id Simple_Graph::greatest_ratio_vertex(
     vertex_id best_vertex;
     typedef map<vertex_id, set<vertex_id> >::const_iterator vertex_iterator;
     
-    #ifdef _DEBUG
-    cout << "Vertices:" << endl;
-    #endif
+	if(DEBUG_MESSAGES)
+		cout << "Vertices:" << endl;
 
     for(vertex_iterator v_it = graph.begin(); v_it != graph.end(); v_it++)
     {
@@ -170,13 +189,14 @@ vertex_id Simple_Graph::greatest_ratio_vertex(
 		double vertex_weight = weights.find(current_vertex)->second;
 		double ratio = degree / vertex_weight;
 
-        #ifdef _DEBUG
-        cout << "    Vertex: " << current_vertex << endl;
-        cout << "    Degree: " << degree << endl;
-        cout << "    Weight: " << vertex_weight << endl;
-        cout << "    Ratio: " << ratio << endl;
-        cout << endl;
-        #endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "    Vertex: " << current_vertex << endl;
+			cout << "    Degree: " << degree << endl;
+			cout << "    Weight: " << vertex_weight << endl;
+			cout << "    Ratio: " << ratio << endl;
+			cout << endl;
+		}
 
         if ( ratio > best_ratio )
         {
@@ -188,7 +208,6 @@ vertex_id Simple_Graph::greatest_ratio_vertex(
     return best_vertex;
 }
 
-
 bool Simple_Graph::equal_weights(const pair<vertex_id, vertex_id>& edge) const
 {
     vertex_id vertex1 = edge.first;
@@ -196,6 +215,33 @@ bool Simple_Graph::equal_weights(const pair<vertex_id, vertex_id>& edge) const
 
     return weights.at(vertex1) == weights.at(vertex2);
 }
+
+bool Simple_Graph::is_valid_cover(const set<vertex_id> &combination) const
+{
+	for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
+		it != graph.end(); it++)
+	{
+		vertex_id current_vertex = it->first;
+		const set<vertex_id> &edges = it->second;
+
+		// Continue if the current vertex is in combination
+		if (combination.find(current_vertex) != combination.end())
+			continue;
+
+		for (set<vertex_id>::const_iterator edge_it = edges.begin();
+			edge_it != edges.end(); edge_it++)
+		{
+			vertex_id other_vertex = *edge_it;
+
+			// Check if the second vertex is in combination
+			if (combination.find(other_vertex) == combination.end())
+				return false;   // Found an edge not covered           
+		}
+	}
+
+	return true;
+}
+
 
 // ============================================================================
 
@@ -213,7 +259,6 @@ void Simple_Graph::clear_edges()
         it->second.clear();
     } 
 }
-
 
 void Simple_Graph::add_vertex(vertex_id id, unsigned int weight)
 {
@@ -236,7 +281,6 @@ void Simple_Graph::add_vertex(vertex_id id, unsigned int weight)
     graph[id];
     weights[id] = weight;
 }
-
 
 void Simple_Graph::add_edge(vertex_id a, vertex_id b)
 {
@@ -261,6 +305,13 @@ void Simple_Graph::add_edge(vertex_id a, vertex_id b)
     graph[b].insert(a);
 }
 
+void Simple_Graph::set_weight(vertex_id id, unsigned int weight)
+{
+	if (weights.find(id) == weights.end())
+		throw logic_error("Cannot assign a weight to a non-existent vertex");
+
+	weights[id] = weight;
+}
 
 vertex_id Simple_Graph::pick_random(const set<vertex_id>& vertex_set) const
 {
@@ -274,7 +325,6 @@ vertex_id Simple_Graph::pick_random(const set<vertex_id>& vertex_set) const
 
     return *it;
 }
-
 
 vector<vertex_id> Simple_Graph::loop_erasing_random_walk(
     const set<vertex_id>& tree_vertices, const set<vertex_id>& vertex_set) const
@@ -337,7 +387,6 @@ vector<vertex_id> Simple_Graph::loop_erasing_random_walk(
     return walk;
 }
 
-
 void Simple_Graph::wilson_spanning_tree(const set<vertex_id>& vertex_set)
 {
     // Create the set of vertices used in the spanning tree
@@ -356,7 +405,6 @@ void Simple_Graph::wilson_spanning_tree(const set<vertex_id>& vertex_set)
         walk = loop_erasing_random_walk(tree_vertices, vertex_set);
     }
 }
-
 
 void Simple_Graph::add_random_edges(const set<vertex_id>& vertex_set, 
     unsigned int num_new_edges)
@@ -407,7 +455,6 @@ void Simple_Graph::add_random_edges(const set<vertex_id>& vertex_set,
     }
 }
 
-
 void Simple_Graph::generate_as_random(unsigned int num_vertices, 
     unsigned int num_edges, unsigned int max_weight)
 {
@@ -455,16 +502,108 @@ void Simple_Graph::generate_as_random(unsigned int num_vertices,
 // ========================= VERTEX COVER FUNCTIONS =========================
 // ============================================================================
 
-unsigned int rand_uint(unsigned int range_limit)
+unsigned int Simple_Graph::optimal_vertex_cover(set<vertex_id> &cover) const
 {
-	uniform_int_distribution<unsigned int> dist(0, range_limit - 1);
-	return dist(mt);
+	cover.clear();
+	unsigned int best_weight_sum = UINT_MAX;
+
+	// This set will hold the vertex sets checked as possible covers
+	set<set<vertex_id> > valid_covers;
+	set<set<vertex_id> >* subsets = new set<set<vertex_id> >;
+	set<set<vertex_id> >* next_subsets = new set<set<vertex_id> >;
+
+	// Insert all sets of size 1 in subsets
+	for (map<vertex_id, set<vertex_id> >::const_iterator it = graph.begin();
+		it != graph.end(); it++)
+	{
+		set<vertex_id> unit_set;
+		unit_set.insert(it->first);
+
+		// If the unit set is a valid cover, return it
+		if ( is_valid_cover(unit_set) )
+		{
+			cover = unit_set;
+			delete subsets;
+			delete next_subsets;
+			return weights.at( it->first );
+		}
+
+		subsets->insert(unit_set);
+	}
+
+	while (true)
+	{
+		// Remember the min weight from all subsets in this iteration
+		unsigned int min_iteration_weight = UINT_MAX;
+		
+		for (set<set<vertex_id> >::const_iterator comb_it = subsets->begin();
+			comb_it != subsets->end(); comb_it++)
+		{
+			const set<vertex_id> &current_subset = *comb_it;
+
+
+			/*  For each vertex and each subset, add a subset that contains the
+			vertex and one that does not */
+			for (map<vertex_id, set<vertex_id> >::const_iterator vertex_it = graph.begin();
+				vertex_it != graph.end(); vertex_it++)
+			{
+				vertex_id current_vertex = vertex_it->first;
+
+				// Continue if the current vertex is already in it
+				if (current_subset.find(current_vertex) != current_subset.end())
+					continue;
+
+				set<vertex_id> current_subset_copy = current_subset;
+
+				/*  Add the current subset U {current_vertex} to the next
+				iteration set */
+				current_subset_copy.insert(current_vertex);
+
+				// Compute the weight sum of this solution
+				unsigned int weight_sum = 0;
+				for (set<vertex_id>::const_iterator cover_it = current_subset_copy.begin();
+					cover_it != current_subset_copy.end(); cover_it++)
+				{
+					weight_sum += weights.at(*cover_it);
+				}
+
+				// Update the min subset weight in this iteration
+				if (weight_sum < min_iteration_weight)
+					min_iteration_weight = weight_sum;
+
+				// Check if the subset is a better solution
+				if (weight_sum < best_weight_sum && is_valid_cover(current_subset_copy))
+				{
+					cover = current_subset_copy;
+					best_weight_sum = weight_sum;
+				}
+
+				next_subsets->insert(current_subset_copy);
+			}
+		}
+
+		/*	Stop if no subsets in this iteraiton have a smaller weight sum than the 
+			current solution. Since the subsets always grow from one iteration to
+			the next, no future subsets are going to be better solutions. */
+		if ( !cover.empty() && best_weight_sum <= min_iteration_weight )
+			return best_weight_sum;
+
+		// Update the subsets pointer
+		delete subsets;
+		subsets = next_subsets;
+		next_subsets = new set<set<vertex_id> >;
+	}
+
+	delete subsets;
+	delete next_subsets;
 }
 
-
-void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
+unsigned int Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
 {
     cover.clear();
+
+	// Counter for the total weight sum of the vertex cover
+	unsigned int cover_weight_sum = 0;
 
     map<vertex_id, set<vertex_id> > graph_copy = graph;
 
@@ -473,13 +612,16 @@ void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
         // Find the vertex with the greatest degree/weight ratio
         vertex_id grv = greatest_ratio_vertex(graph_copy);
 
-        #ifdef _DEBUG
-        cout << "Greatest ratio vertex: " << grv << endl;
-        cout << "********************" << endl << endl;
-        #endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "Greatest ratio vertex: " << grv << endl;
+			cout << "********************" << endl << endl;
+		}
 
+		// Add the vertex to the vertex cover
         cover.insert( grv );
-        
+		cover_weight_sum += weights.at(grv);
+
         /*  Remove the greatest ratio vertex from the adjacency list of each
             of its adjacent vertices */
         set<vertex_id> &adj_vertices = graph_copy[grv];
@@ -499,22 +641,27 @@ void Simple_Graph::greedy_vertex_cover(set<vertex_id>& cover) const
         // Remove the greatest degree vertex from the graph
         graph_copy.erase( grv );
     }
+
+	return cover_weight_sum;
 }
 
-
-void Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
+unsigned int Simple_Graph::pricing_vertex_cover(set<vertex_id>& cover) const
 {
-    pricing_vertex_cover(cover, false); 
+    return pricing_vertex_cover(cover, false); 
 }
 
-
-void Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover) const
+unsigned int Simple_Graph::improved_pricing_vertex_cover(set<vertex_id>& cover) const
 {
-    pricing_vertex_cover(cover, true); 
+    return pricing_vertex_cover(cover, true); 
 }
 
+unsigned int rand_uint(unsigned int range_limit)
+{
+	uniform_int_distribution<unsigned int> dist(0, range_limit - 1);
+	return dist(mt);
+}
 
-void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) const
+unsigned int Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) const
 {
     typedef pair<vertex_id, vertex_id> edge;
 
@@ -544,19 +691,24 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
     // Vector containing all the edges
     vector<edge> edge_vec( edge_set.begin(), edge_set.end() );
 
-#ifdef _DEBUG
-    cout << "Edge vector:" << endl;
-    for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
-        cout << "  (" << it->first << ", " << it->second << ")" << endl;
-#endif
+	if (DEBUG_MESSAGES)
+	{
+		cout << "Edge vector:" << endl;
+		for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+			cout << "  (" << it->first << ", " << it->second << ")" << endl;
+	}
 
-    random_shuffle(edge_vec.begin(), edge_vec.end(), rand_uint);
+	if (SHUFFLE)
+	{
+		random_shuffle(edge_vec.begin(), edge_vec.end(), rand_uint);
 
-#ifdef _DEBUG
-    cout << "Shuffled edge vector:" << endl;
-    for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
-        cout << "  (" << it->first << ", " << it->second << ")" << endl;
-#endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "Shuffled edge vector:" << endl;
+			for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+				cout << "  (" << it->first << ", " << it->second << ")" << endl;
+		}
+	}
 
     /*  Improved pricing heuristic. This heuristic partitions the vector in such
         a way that all edges whose vertices have different weights will be chosen
@@ -566,11 +718,12 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
         stable_partition(edge_vec.begin(), edge_vec.end(), 
             [this] (const pair<vertex_id, vertex_id>& edge) { return this->equal_weights(edge); } );
         
-#ifdef _DEBUG
-        cout << "Edge vector after heuristic:" << endl;
-        for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
-            cout << "  (" << it->first << ", " << it->second << ")" << endl;
-#endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "Edge vector after heuristic:" << endl;
+			for (auto it = edge_vec.begin(); it != edge_vec.end(); it++)
+				cout << "  (" << it->first << ", " << it->second << ")" << endl;
+		}
     }
     
     /*  Creates a map to keep track of how much of each vertex weight is 
@@ -601,20 +754,20 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
         unsigned int available_price_v1 = used_weight_v1.second - used_weight_v1.first;
         unsigned int available_price_v2 = used_weight_v2.second - used_weight_v2.first;
 
-#ifdef _DEBUG
-        cout << "Edge: (" << v1 << ", " << v2 << ")" << endl;
-        cout << "    Price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
-        cout << "    Price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
-        cout << "    Available price (" << v1 << "): " << available_price_v1 << endl;
-        cout << "    Available price (" << v2 << "): " << available_price_v2 << endl;
-#endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "Edge: (" << v1 << ", " << v2 << ")" << endl;
+			cout << "    Price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
+			cout << "    Price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
+			cout << "    Available price (" << v1 << "): " << available_price_v1 << endl;
+			cout << "    Available price (" << v2 << "): " << available_price_v2 << endl;
+		}
 
         // Ignore this edge if either v1 or v2 is tight
         if ( available_price_v1 == 0 || available_price_v2 == 0 )
         {
-#ifdef _DEBUG
-            cout << "    **** Tight vertex ****" << endl;
-#endif
+			if (DEBUG_MESSAGES)
+				cout << "    **** Tight vertex ****" << endl;
             continue;
         }
 
@@ -626,15 +779,20 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
         used_weight_v1.first += price;
         used_weight_v2.first += price;
 
-#ifdef _DEBUG
-        cout << "    Edge price: " << price << endl;
-        cout << "    New price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
-        cout << "    New price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
-#endif
+		if (DEBUG_MESSAGES)
+		{
+			cout << "    Edge price: " << price << endl;
+			cout << "    New price sum (" << v1 << "): " << used_weight_v1.first << "/" << used_weight_v1.second << endl;
+			cout << "    New price sum (" << v2 << "): " << used_weight_v2.first << "/" << used_weight_v2.second << endl;
+		}
     }
 
     cover.clear();
     
+	// Counter for the total weight sum of the vertex cover
+	unsigned int cover_weight_sum = 0;
+	
+	// Add all tight vertices to the vertex cover
     for (auto used_weights_it = used_weights.begin(); 
         used_weights_it != used_weights.end(); used_weights_it++)
     {
@@ -643,9 +801,14 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
         unsigned int vertex_weight = used_weights_it->second.second;
 
         // If the vertex is tight, add it to the vertex cover
-        if ( used_weight == vertex_weight )
+		if (used_weight == vertex_weight)
+		{
             cover.insert( current_vertex );
+			cover_weight_sum += vertex_weight;
+		}
     }
+
+	return cover_weight_sum;
 }
 
 // ============================================================================
@@ -655,6 +818,214 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
 // ============================================================================
 // =========================== ANALYSIS FUNCTIONS =============================
 // ============================================================================
+
+struct Statistics {
+	double sum_greedy, sum_pricing, sum_improved_pricing;
+	double worst_greedy_dist, worst_pricing_dist, worst_improved_pricing_dist;
+
+	Statistics()
+	{
+		sum_greedy = sum_pricing = sum_improved_pricing = 0;
+		worst_greedy_dist = worst_pricing_dist = worst_improved_pricing_dist = 0;
+	}
+};
+
+template <class T>
+string set_to_string(const T& set)
+{
+	stringstream ss;
+	
+	ss << "{";
+	for (T::const_iterator it = set.begin(); it != set.end(); it++)
+	{
+		if (it != set.begin()) { ss << ", "; }
+		ss << *it;
+	}
+	ss << "}";
+	
+	return ss.str();
+}
+
+void analyse_input(ostream* output, const Simple_Graph& graph)
+{
+	set<vertex_id> optimal_cover, greedy_cover, pricing_cover, improved_pricing_cover;
+	unsigned int optimal_weight_sum, greedy_weight_sum, pricing_weight_sum, improved_pricing_weight_sum;
+
+	optimal_weight_sum = graph.optimal_vertex_cover(optimal_cover);
+	greedy_weight_sum = graph.greedy_vertex_cover(greedy_cover);
+	pricing_weight_sum = graph.pricing_vertex_cover(pricing_cover);
+	improved_pricing_weight_sum = graph.improved_pricing_vertex_cover(improved_pricing_cover);
+
+	stringstream ss;
+
+	// Print results for the optimal vertex cover
+	for (set<vertex_id>::const_iterator it = optimal_cover.begin(); it != optimal_cover.end(); it++)
+		ss << *it << " ";
+	ss << optimal_weight_sum << endl;
+
+	// Print results for the greedy vertex cover
+	for (set<vertex_id>::const_iterator it = greedy_cover.begin(); it != greedy_cover.end(); it++)
+		ss << *it << " ";
+	ss << greedy_weight_sum << endl;
+
+	// Print results for the pricing vertex cover
+	for (set<vertex_id>::const_iterator it = pricing_cover.begin(); it != pricing_cover.end(); it++)
+		ss << *it << " ";
+	ss << pricing_weight_sum << endl;
+
+	// Print results for the improved_pricing vertex cover
+	for (set<vertex_id>::const_iterator it = improved_pricing_cover.begin(); it != improved_pricing_cover.end(); it++)
+		ss << *it << " ";
+	ss << improved_pricing_weight_sum << endl;
+
+	ss << endl;
+
+	ostream_lock.lock();
+	*output << ss.str();
+	ostream_lock.unlock();
+}
+
+void analyse_simulation(ostream* os, Statistics* statistics, const Simple_Graph graph)
+{
+	set<vertex_id> optimal_cover, greedy_cover, pricing_cover, improved_pricing_cover;
+	double optimal_weight_sum, greedy_weight_sum, pricing_weight_sum, improved_pricing_weight_sum;
+
+	optimal_weight_sum = graph.optimal_vertex_cover(optimal_cover);
+	greedy_weight_sum = graph.greedy_vertex_cover(greedy_cover);
+	pricing_weight_sum = graph.pricing_vertex_cover(pricing_cover);
+	improved_pricing_weight_sum = graph.improved_pricing_vertex_cover(improved_pricing_cover);
+
+	// Compute distances to optimal
+	double dist_greedy_optimal = greedy_weight_sum / optimal_weight_sum;
+	double dist_pricing_optimal = pricing_weight_sum / optimal_weight_sum;
+	double dist_improved_pricing_optimal = improved_pricing_weight_sum / optimal_weight_sum;
+
+	// Update counters for average
+	statistics->sum_greedy += dist_greedy_optimal;
+	statistics->sum_pricing += dist_pricing_optimal;
+	statistics->sum_improved_pricing += dist_improved_pricing_optimal;
+
+	// Update worst distances
+	statistics->worst_greedy_dist = max( statistics->worst_greedy_dist, dist_greedy_optimal );
+	statistics->worst_pricing_dist = max( statistics->worst_pricing_dist, dist_pricing_optimal );
+	statistics->worst_improved_pricing_dist = max( statistics->worst_improved_pricing_dist, 
+		dist_improved_pricing_optimal );
+
+	ostream_lock.lock();
+
+	// Print the graph to the output stream
+	*os << "******************************" << endl << endl;
+	*os << "=== Graph ===" << endl << graph.to_string_output() << endl;
+	// Print the solutions to the output stream
+	*os << "=== Solutions ===" << endl;
+	*os << "Optimal: " << set_to_string(optimal_cover) << endl;
+	*os << "Greedy: " << set_to_string(greedy_cover) << endl;
+	*os << "Pricing: " << set_to_string(pricing_cover) << endl;
+	*os << "Improved Pricing: " << set_to_string(improved_pricing_cover) << endl << endl;
+	// Print the distances from the heuristic solutions to OPT
+	*os << "=== Distances to OPT ===" << endl;
+	*os << "Greedy: " << dist_greedy_optimal << endl;
+	*os << "Pricing: " << dist_pricing_optimal << endl;
+	*os << "Improved Pricing: " << dist_improved_pricing_optimal << endl << endl;
+
+	ostream_lock.unlock();
+}
+
+void run_simulation(ostream& os, unsigned int num_vertices, 
+	unsigned int num_edges, unsigned int max_weight)
+{
+	Statistics statistics;
+	stringstream thread_ostream;
+
+	vector<thread> running_threads;
+	for (int i = 0; i < NUM_SIMULATIONS; i++)
+	{
+		Simple_Graph graph;
+		graph.generate_as_random(num_vertices, num_edges, max_weight);
+
+		running_threads.push_back( thread(analyse_simulation, &thread_ostream, 
+			&statistics, graph) );
+		
+		// If NUM_THREADS threads are running, wait for them and then clear the vector
+		if (running_threads.size() == NUM_THREADS)
+		{
+			for (vector<thread>::size_type i = 0; i < running_threads.size(); i++)
+				running_threads[i].join();
+
+			running_threads.clear();
+		}
+	}
+
+	// Wait for remaining threads
+	for (vector<thread>::size_type i = 0; i < running_threads.size(); i++)
+		running_threads[i].join();
+
+	// Print simulation statistics to the output stream
+	os << "========== GLOBAL STATISTICS ==========" << endl;
+	os << "Average greedy distance to OPT: " << statistics.sum_greedy / NUM_SIMULATIONS << endl;
+	os << "Worst greedy distance to OPT: " << statistics.worst_greedy_dist << endl << endl;
+	os << "Average pricing distance to OPT: " << statistics.sum_pricing / NUM_SIMULATIONS << endl;
+	os << "Worst pricing distance to OPT: " << statistics.worst_pricing_dist << endl << endl;
+	os << "Average improved pricing distance to OPT: " << statistics.sum_improved_pricing / NUM_SIMULATIONS << endl;
+	os << "Worst improved pricing distance to OPT: " << statistics.worst_improved_pricing_dist << endl;
+	os << "=======================================" << endl << endl;
+
+	// Print thread outputs to the output stream
+	os << thread_ostream.str() << endl;
+}
+
+void parse_input(istream& is, Simple_Graph& graph)
+{
+	graph.clear();
+
+	unsigned int vertex_num;
+	
+	if ( !(is >> vertex_num) ) throw runtime_error("Could not read from stream");
+	
+	for (unsigned int vertex = 1; vertex <= vertex_num; vertex++)
+		graph.add_vertex(vertex, 1);
+
+	for (unsigned int vertex = 1; vertex <= vertex_num; vertex++)
+	{
+		unsigned int weight;
+		if ( !(is >> weight) ) throw runtime_error("Could not read from stream");
+
+		graph.set_weight(vertex, weight);
+
+		unsigned int adjacent;
+		while ( is >> adjacent && adjacent != 0 )
+			graph.add_edge(vertex, adjacent);
+	}
+}
+
+void process_input(istream& is, ostream& os)
+{
+	unsigned int num_inputs;
+	if ( !(is >> num_inputs) ) throw runtime_error("Could not read from file");
+
+	vector<thread> running_threads;
+	
+	for (unsigned int instance = 0; instance < num_inputs; instance++)
+	{
+		Simple_Graph graph;
+		parse_input(is, graph);
+
+		running_threads.push_back( thread(analyse_input, &os, graph) );
+
+		// If NUM_THREADS threads are running, wait for them and then clear the vector
+		if (running_threads.size() == NUM_THREADS)
+		{
+			for (vector<thread>::size_type i = 0; i < running_threads.size(); i++)
+				running_threads[i].join();
+
+			running_threads.clear();
+		}
+	}
+
+	// Wait for remaining threads
+	for (vector<thread>::size_type i = 0; i < running_threads.size(); i++)
+		running_threads[i].join();
+}
 
 // ============================================================================
 
@@ -667,22 +1038,86 @@ void Simple_Graph::pricing_vertex_cover( set<vertex_id>& cover, bool improved) c
 
 int main()
 {
-	Simple_Graph g;
+	try
+	{
+		string mode;
+		cout << "Type the program mode: \"simulation\" or \"input\"..." << endl;
+		while ( getline(cin, mode) && mode != "simulation" && mode != "input" )
+		{
+			cout << "Invalid mode" << endl;
+		}
 
-    g.generate_as_random(5, 8, 10);
+		if ( !cin )
+			throw runtime_error("Cannot read from standard input stream");
 
-    cout << g.to_string() << endl;
-        
-    set<vertex_id> cover;
-    g.improved_pricing_vertex_cover(cover);
-    
-    cout << "Vertex cover:" << endl;
-    for (auto it = cover.begin(); it != cover.end(); it++)
-    {
-        cout << *it << " ";
-    }
-    cout << endl;
+		stringstream analysis_output;
 
-    return 0;
+		if (mode == "input")
+		{
+			stringstream input_file_content;
+
+			// ===== Read input file =====
+			ifstream input_file("WVC_jgsma.txt");
+
+			string line;
+			while (getline(input_file, line))
+				input_file_content << line << endl;
+
+			input_file.close();
+			// ===========================
+
+			// Process input
+			process_input(input_file_content, analysis_output);
+		}
+		else
+		{
+			// ========== Read the simulation parameters ==========
+			int num_vertices, num_edges, max_weight;
+			cout << "Type the number of vertices in each graph..." << endl;
+			while (!(cin >> num_vertices) || num_vertices <= 0)
+			{
+				cout << "Invalid number of vertices" << endl;
+				cin.clear();
+			}
+
+			cout << "Type the number of edges in each graph..." << endl;
+			while (!(cin >> num_edges) || num_edges <= 0)
+			{
+				cout << "Invalid number of edges" << endl;
+				cin.clear();
+			}
+
+			cout << "Type the max weight for each vertex..." << endl;
+			while (!(cin >> max_weight) || max_weight <= 0)
+			{
+				cout << "Invalid weight value" << endl;
+				cin.clear();
+			}
+
+			cout << "Type the number of instances in the simulation..." << endl;
+			while (!(cin >> NUM_SIMULATIONS) || NUM_SIMULATIONS <= 0)
+			{
+				cout << "Invalid number of instances" << endl;
+				cin.clear();
+			}
+			// ====================================================
+
+			run_simulation(analysis_output, num_vertices, num_edges, max_weight);
+		}
+
+		// ===== Write results to output file =====
+		ofstream output_file("WVC_jgsma_Output.txt");
+		output_file << analysis_output.str() << endl;
+		output_file.close();
+		// ========================================
+
+	}
+	catch (std::exception& e)
+	{
+		cout << "ERROR: " << e.what() << endl;
+		return 1;
+	}
+
+	return 0;
 }
 // ============================================================================

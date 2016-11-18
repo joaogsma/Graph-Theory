@@ -66,7 +66,7 @@ Linear_Program::Linear_Program(const vector<double>& objective_vector,
 
 void Linear_Program::validate_values(const vector<double>* objective_vector,
     const vector<vector<double> >* a_matrix, 
-    const vector<double>*  b_vector = nullptr) const
+    const vector<double>*  b_vector) const
 {
     const string& error_message = "Invalid Linear Programming configuration";
 
@@ -100,8 +100,8 @@ void Linear_Program::set_simplex(vector<vector<double>>& simplex) const
 {
     simplex.clear();
 
-    int num_variables = objective_vector.size();
-    int num_equations = a_matrix.size();
+    int num_variables = (int) objective_vector.size();
+    int num_equations = (int) a_matrix.size();
     int num_cols = num_variables + num_equations + 1 + 1;
 
 
@@ -132,8 +132,8 @@ void Linear_Program::set_simplex(vector<vector<double>>& simplex) const
 bool Linear_Program::get_pivots(vector<vector<double>> simplex, int& pivot_col,
     int& pivot_row, bool& no_solution) const
 {
-    int num_rows = simplex.size();
-    int num_cols = simplex[0].size();
+    int num_rows = (int) simplex.size();
+    int num_cols = (int) simplex[0].size();
     int num_variables = num_cols - num_rows - 1;
 
     no_solution = false;
@@ -186,8 +186,8 @@ void Linear_Program::do_simplex(vector<vector<double>> simplex,
     x.clear();
 
     int pivot_col, pivot_row;
-    int num_rows = simplex.size();
-    int num_cols = simplex[0].size();
+    int num_rows = (int) simplex.size();
+    int num_cols = (int) simplex[0].size();
 
     bool no_solution = false;
     while (get_pivots(simplex, pivot_col, pivot_row, no_solution))
@@ -267,5 +267,35 @@ void Linear_Program::solve(vector<double>& solution, double& max) const
 
 
 // ============================================================================
+
+
+// Test case
+void run_test()
+{
+    vector<double> maxFunc = { 0.5 , 3.0 , 1.0 , 4.0 };
+
+    vector<vector<double>> A = 
+    {
+        {1.0, 1.0, 1.0, 1.0, 40}, 
+        {-2.0, -1.0, 1.0, 1.0, 10}, 
+        {0.0, 1.0, 0.0, -1.0, 10} 
+    };
+    
+    Linear_Program lp(maxFunc, A);
+
+    double max;
+    vector<double> result;
+
+    lp.solve(result, max);
+
+    printf("Result: Max = %f\n", max);
+    for (int i = 0; i < result.size(); i++)
+    {
+        printf("x%d = %f ; ", i, result[i]);
+    }
+    printf("\n----------------------\n");
+}
+
+int main() { run_test(); }
 
 #endif

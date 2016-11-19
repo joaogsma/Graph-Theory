@@ -1,20 +1,31 @@
 #ifndef __GUARD_MAIN__
 #define __GUARD_MAIN__
 
+#include <algorithm>
+#include <iterator>
+#include <map>
 #include <vector>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
-using std::vector;
+using std::back_inserter;
+using std::copy;
+using std::map;
+using std::pair;
 using std::runtime_error;
 using std::string;
-
+using std::transform;
+using std::vector;
 
 // ============================================================================
 // ============================== LINEAR PROGRAM ==============================
 // ============================================================================
 
 // ============= CLASS DECLARATION =============
+/*  The Linear_Program class assumes a linear program in standard form, i.e., 
+    the objective function is to be maximized, all inequalities are in the 
+    form ... <= ... and all variables in th e solution must be >= 0. */
 class Linear_Program {
 public:    
     Linear_Program(const vector<double>& objective_vector, const vector<vector<double> >& a_matrix,
@@ -264,9 +275,129 @@ void Linear_Program::solve(vector<double>& solution, double& max) const
 // ================================== GRAPH ===================================
 // ============================================================================
 
+struct Graph {
+    map<int, map<int, int> > distance_cost;
+    vector<int> facility_costs;
+    vector<int> client_demands;
+
+    int facilities() const { return (int)facility_costs.size(); }
+
+    int clients() const { return (int)client_demands.size(); }
+
+private:
+    static int get_key(const pair<int, int>& map_it) { return map_it.first; }
+};
+
+// ============================================================================
 
 
 // ============================================================================
+// =============================== BRUTE-FORCE ================================
+// ============================================================================
+
+int get_edge_position(int client, int facility, int num_facilities)
+{
+    return (facility * num_facilities) + client;
+}
+
+void optimal(const Graph& problem, vector<int>& open_facilities,
+    map<int, int>& client_assigned_facility)
+{
+    open_facilities.clear();
+    client_assigned_facility.clear();
+
+    int num_facilities = problem.facilities();
+    int num_clients = problem.clients();
+    int num_variables = num_facilities * num_clients;
+
+    vector<double> best_solution;
+    double best_max = -1;
+
+    unsigned long long out_of_range = 1ll << num_facilities;
+
+    /*  Test all combinations of facilities. Each combination is codified in an
+    unsigned long long variable, where a 1 value in the nth bit signals that
+    the facility in the nth position of the facilities vector is active */
+    for (unsigned long long combination = 1; combination < out_of_range; ++combination)
+    {
+        map<int, bool> x_values;
+
+        // Set the x value of each facility to the value of the corresponding bit
+        for (int facility = 0; facility < num_facilities; ++facility)
+            x_values[facility] = ((1ll << facility) & combination) > 0;
+
+        /*  Objecive function to be minimized. The coefficients will all be negated
+        before they are added, since a LP in standard form requires a function
+        to be maximized */
+        vector<double> objective_vector(num_variables, 0);
+
+        // Copy facility-client edges (distance cost * client demand)
+        for (int facility = 0; facility < num_facilities; ++facility)
+        {
+            for (int client = 0; client < num_clients; ++client)
+            {
+                int pos = get_edge_position(client, facility, num_facilities);
+                objective_vector[pos] = -1 * problem.distance_cost.at(facility).at(client) *
+                    problem.client_demands[client];
+            }
+        }
+
+        vector<vector<double> > a_matrix;
+        vector<double> b_vector;
+
+        /*  Constraints guaranteeing that the demands of every client is satified.
+        These specify that the summation of x_ij, through all facilities i,
+        is equal to one, for all clients j */
+        for (int client = 0; client < num_clients; ++client)
+        {
+            vector<double> constraint1(num_variables, 0);
+            vector<double> constraint2 = constraint1;
+
+            for (int facility = 0; facility < num_facilities; ++facility)
+            {
+                int position = get_edge_position(client, facility, num_facilities);
+                constraint1[position] = 1;
+                constraint2[position] = -1;
+            }
+
+            a_matrix.push_back(constraint1);
+            a_matrix.push_back(constraint2);
+            b_vector.push_back(1);
+            b_vector.push_back(-1);
+        }
+
+        /*  Constraints guaranteeing that clients are supplied only from open
+        facilities. These specify that x_ij <= y_j for all facility i and
+        client j */
+        for (int facility = 0; facility < num_facilities; ++facility)
+        {
+            for (int client = 0; client < num_clients; ++client)
+            {
+                vector<double> constraint(num_variables, 0.);
+
+                int pos = get_edge_position(client, facility, num_facilities);
+                constraint[pos] = 1;
+
+                a_matrix.push_back(constraint);
+                b_vector.push_back(x_values[facility]);
+            }
+        }
+
+        // Create and solve a LP problem in order to find the remaining variables
+        Linear_Program lp(objective_vector, a_matrix, b_vector);
+
+        vector<double> solution;
+        double max;
+        lp.solve(solution, max);
+
+        if (max > best_max) best_solution = solution;
+    }
+
+}
+
+// ============================================================================
+
+
 
 
 // Test case

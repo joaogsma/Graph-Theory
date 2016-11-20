@@ -336,6 +336,25 @@ void optimal(const Graph& problem, vector<bool>& open_facilities,
 
 // ============================================================================
 
+void print_solution(const vector<bool>& open_facilities,
+    const map<int, int>& client_assignment, double cost)
+{
+    std::cout << "Total Cost: " << cost << std::endl << std::endl;
+
+    std::cout << "Solution: " << std::endl;
+    for (int i = 0; i < open_facilities.size(); ++i)
+        std::cout << "\tFacility #" << (i + 1) << "\t" <<
+        (open_facilities[i] ? "Open" : "Closed") << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "Client assignment: " << std::endl;
+    for (map<int, int>::const_iterator it = client_assignment.begin();
+        it != client_assignment.end(); ++it)
+    {
+        std::cout << "\tClient #" << (it->first + 1) << "\t" <<
+            "Facility #" << (it->second + 1) << std::endl;
+    }
+}
 
 int main()
 {
@@ -366,10 +385,11 @@ int main()
 
     vector<bool> open_facilities;
     map<int, int> client_assignment;
-    double max;
+    double cost;
 
-    optimal(g, open_facilities, client_assignment, max);
+    optimal(g, open_facilities, client_assignment, cost);
 
+    print_solution(open_facilities, client_assignment, cost);
 }
 
 #endif

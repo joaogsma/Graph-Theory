@@ -128,53 +128,6 @@ void Linear_Program::validate() const
         if (constraints[i].size() != eq_size) throw runtime_error(error_message);
 }
 
-/*
-void Linear_Program::solve(vector<double>& solution, double& value, 
-    bool do_maximize, bool relaxed) const
-{
-    solution.clear();
-
-    vector<vector<double> > eq_constraints, lt_constraints, gt_constraints;
-
-    for (vector<vector<double> >::size_type i = 0; i < constraints.size(); ++i)
-    {
-        switch (constraint_types[i])
-        {
-        case '=': eq_constraints.push_back(constraints[i]); break;
-        case '<': lt_constraints.push_back(constraints[i]); break;
-        case '>': gt_constraints.push_back(constraints[i]); break;
-        }
-    }
-
-    stringstream ss;
-
-    to_lib_syntax(ss, do_maximize, true, objective_vector, eq_constraints, 
-        lt_constraints, gt_constraints);
-
-    string s = ss.str();
-    std::cout << s << endl;
-
-    optimization::Simplex solver("LP Problem");
-    solver.load_problem(ss);
-
-    solver.solve();
-
-    if ( solver.must_be_fixed() )
-        throw runtime_error("Problem formulation is incorrect");
-
-    if ( solver.has_solutions() )
-    {
-        if ( !solver.is_unlimited() ) 
-            // Return the solution tht was found
-            solver.get_solution(solution, value);
-        else 
-            throw runtime_error("Problem is unlimited");
-    }
-    else
-        throw runtime_error("Problem is overconstrained");
-}
-*/
-
 void Linear_Program::solve(vector<double>& solution, double& value, 
     bool do_maximize, bool relaxed) const
 {
@@ -883,8 +836,8 @@ string print_input_format(const Graph& problem)
     return ss.str();
 }
 
-string print_output_format(int instance, const string& algorithm,
-    const map<int, int> client_assignments,
+string print_output_format(int instance, const string& algorithm, 
+    int num_facilities, const map<int, int> client_assignments,
     const map<int, vector<int> >& facility_assignments, double cost)
 {
     stringstream ss;
@@ -905,7 +858,7 @@ string print_output_format(int instance, const string& algorithm,
         ss << "Facility f" << (it->first + 1) << " atende clientes:";
 
         for (vector<int>::size_type i = 0; i < it->second.size(); ++i)
-            ss << ' ' << ((it->second)[i] + 1);
+            ss << ' ' << ((it->second)[i] + 1 + num_facilities);
 
         ss << endl;
     }
@@ -945,41 +898,91 @@ void read_instance(Graph& problem, istream& in, ostream& out)
     }
 }
 
-void read_input(istream& in, ostream& out)
+void read_input(istream& in, ostream& out, bool find_cases = false)
 {
     int num_instances;
 
     if ( !(in >> num_instances) ) 
         throw runtime_error("Could not read number of instances");
 
+    bool standard_found = false, modified_found = false;
+
+    double h_mean = 0, mh_mean = 0, h_worst = INT_MIN, mh_worst = INT_MIN;
+    double h_success = 0, mh_success = 0;
+
+    stringstream ss;
+
+
     for (int instance = 0; instance < num_instances; ++instance)
     {
         Graph problem;
-        read_instance(problem, in, out);
+        read_instance(problem, in, ss);
 
         map<int, vector<int> > facility_assignment;
         map<int, int> client_assignment;
-        double cost;
+        double opt_cost, h_cost, mh_cost;
 
-        optimal(problem, client_assignment, facility_assignment, cost);
-        cout << print_output_format(instance, "Ótima", client_assignment, 
-            facility_assignment, cost);
-        std::cout << std::endl;
+        optimal(problem, client_assignment, facility_assignment, opt_cost);
+        ss << print_output_format(instance+1, "Ótima", problem.facilities(), 
+            client_assignment, facility_assignment, opt_cost) << endl;
 
-        lp_rounding(problem, client_assignment, facility_assignment, cost);
-        cout << print_output_format(instance, "Heurística", client_assignment, 
-            facility_assignment, cost);
-        std::cout << std::endl;
+        lp_rounding(problem, client_assignment, facility_assignment, h_cost);
+        ss << print_output_format(instance+1, "Heurística", problem.facilities(),
+            client_assignment, facility_assignment, h_cost) << endl;
 
-        lp_rounding(problem, client_assignment, facility_assignment, cost, true);
-        cout << print_output_format(instance, "Heurística Melhorada",
-            client_assignment, facility_assignment, cost);
+        lp_rounding(problem, client_assignment, facility_assignment, mh_cost, true);
+        ss << print_output_format(instance+1, "Heurística Melhorada", 
+            problem.facilities(), client_assignment, facility_assignment, mh_cost) << endl;
 
-        cout << endl << "==============================" << endl << endl;
+        ss << "========================================" << endl << endl;
+
+        if (find_cases && h_cost < mh_cost && !standard_found)
+        {
+            standard_found = true;
+            cout << "*** Standard heuristic is better in this instance ***" << endl;
+            cout << print_output_format(instance + 1, "Heurística", problem.facilities(),
+                client_assignment, facility_assignment, h_cost) << endl;
+            cout << print_input_format(problem) << endl;
+        }
+        else if (find_cases && mh_cost < h_cost && !modified_found)
+        {
+            modified_found = true;
+            cout << "*** Modified heuristic is better in this instance ***" << endl;
+            cout << print_output_format(instance + 1, "Heurística Melhorada",
+                problem.facilities(), client_assignment, facility_assignment, mh_cost) << endl;
+            cout << print_input_format(problem) << endl;
+        }
+
+        if (h_cost == opt_cost) h_success++;
+        if (mh_cost == opt_cost) mh_success++;
+
+        double h_ratio = h_cost / opt_cost;
+        double mh_ratio = mh_cost / opt_cost;
+
+        h_mean += h_ratio;
+        mh_mean += mh_ratio;
+
+        h_worst = std::max(h_worst, h_ratio);
+        mh_worst = std::max(mh_worst, mh_ratio);
     }
+
+    out << "================================" << endl;
+    out << "========== STATISTICS ==========" << endl;
+    out << "================================" << endl << endl;
+    out << "Heuristic mean ratio: " << (h_mean / num_instances) << endl;
+    out << "Modified heuristic mean ratio: " << (mh_mean / num_instances) << endl;
+    out << "Heuristic equals OPT: " << (100*(h_success / num_instances)) << "%" << endl;
+    out << "Modified heuristic equals OPT: " << (100*(mh_success / num_instances)) << "%" << endl;
+    out << "Worst heuristic ratio: " << h_worst << endl;
+    out << "Worst modified heuristic ratio: " << mh_worst << endl << endl;
+
+    out << "================================" << endl;
+    out << "========== INSTANCES ===========" << endl;
+    out << "================================" << endl << endl << ss.str();
+
 }
 
-void read_input(const string& input_filename, const string& out_filename)
+void read_input(const string& input_filename, const string& out_filename, bool find_cases = false)
 {
     ifstream input_file(input_filename);
     ofstream output_file(out_filename);
@@ -987,50 +990,39 @@ void read_input(const string& input_filename, const string& out_filename)
     if (!input_file) throw runtime_error("Could not open input file");
     if (!output_file) throw runtime_error("Could not open output file");
 
-    read_input(input_file, output_file);
+    read_input(input_file, output_file, find_cases);
 
     input_file.close();
     output_file.close();
 }
 
-void run()
+void random_problems(int problems_per_configuration, ostream& out)
 {
-    for (int i = 0; i < 100; i++)
-    {
-        Graph g = random_graph(6, 14);
 
-        map<int, vector<int> > facility_assignment;
-        map<int, int> client_assignment;
-        double cost;
+    out << "=====================================" << endl;
+    out << "========== Configuration 1 ==========" << endl;
+    out << "=====================================" << endl << endl;
+    for (int i = 0; i < problems_per_configuration; i++)
+        out << print_input_format( random_graph(4, 10) ) << endl;
 
-        optimal(g, client_assignment, facility_assignment, cost);
-    
-        lp_rounding(g, client_assignment, facility_assignment, cost);
-    
-        lp_rounding(g, client_assignment, facility_assignment, cost, true);
-        
-        if (cost != cost || cost != cost)
-        {
-            cout << print_output_format(i, "Ótima", client_assignment, 
-                facility_assignment, cost);
-            cout << endl;
+    out << "=====================================" << endl;
+    out << "========== Configuration 2 ==========" << endl;
+    out << "=====================================" << endl << endl;
+    for (int i = 0; i < problems_per_configuration; i++)
+        out << print_input_format( random_graph(5, 12) ) << endl;
 
-            cout << print_output_format(i, "Heurística", client_assignment, 
-                facility_assignment, cost);
-            cout << endl;
+    out << "=====================================" << endl;
+    out << "========== Configuration 3 ==========" << endl;
+    out << "=====================================" << endl << endl;
+    for (int i = 0; i < problems_per_configuration; i++)
+        out << print_input_format( random_graph(6, 14) ) << endl;
 
-            cout << print_output_format(i, "Heurística Melhorada", 
-                client_assignment, facility_assignment, cost);
-            cout << endl;
-
-            cout << print_input_format(g) << endl;
-        }
-        else
-            std::cout << "Nope..." << endl;
-    }
-    
+    out << "=====================================" << endl;
+    out << "========== Configuration 4 ==========" << endl;
+    out << "=====================================" << endl << endl;
+    for (int i = 0; i < problems_per_configuration; i++)
+        out << print_input_format( random_graph(7, 16) ) << endl;
 }
-
 
 int main()
 {
@@ -1038,12 +1030,23 @@ int main()
     
     try
     {
-        read_input("input.txt", "output.txt");
-        //run();   
+        string choice;
+        cout << "Type \"f\" for file inputs, or \"r\" for random problems:" << endl;
+        
+        do { std::cin >> choice; } while (choice != "r" && choice != "f");
+
+        if (choice == "f")
+            read_input("Projeto_UFL_input.txt", "Projeto_UFL_output_jgsma.txt", true);
+        else
+        {
+            ofstream output_file("Projeto_UFL_jgsma_400_inputs.txt");
+            random_problems(400, output_file);
+            output_file.close();
+        }
     }
     catch (std::exception& e)
     {
-        std::cout << e.what() << endl;
+        cout << "ERROR => " << e.what() << endl;
     }
 }
 

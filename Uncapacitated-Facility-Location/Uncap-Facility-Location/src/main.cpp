@@ -68,7 +68,7 @@ static const int artificial_inf = std::max(1000 * max_distance, 99999);
 
 
 static random_device rd;
-static mt19937 mt_engine( rd() );
+static mt19937 mt_engine(rd());
 static GRBEnv env;
 
 
@@ -77,28 +77,27 @@ static GRBEnv env;
 // ============================================================================
 
 // ============= CLASS DECLARATION =============
-/*  The Linear_Program class assumes a linear program in standard form, i.e., 
-    the objective function is to be maximized, all inequalities are in the 
-    form ... <= ... and all variables in th e solution must be >= 0. */
 class Linear_Program {
-friend int main();
+    friend int main();
 public:
-    Linear_Program(const vector<double>& objective_vector, 
+    Linear_Program(const vector<double>& objective_vector,
         const vector<vector<double> >& constraints,
-        const vector<char>& constraint_types): objective_vector(objective_vector), 
-        constraints(constraints), constraint_types(constraint_types) { validate(); }
+        const vector<char>& constraint_types) : objective_vector(objective_vector),
+        constraints(constraints), constraint_types(constraint_types) {
+        validate();
+    }
 
-    void solve(vector<double>& solution, double& value, bool do_maximize = true, 
+    void solve(vector<double>& solution, double& value, bool do_maximize = true,
         bool relaxed = false) const;
 
 private:
-    vector<double> objective_vector;    // Coefficients of the objective function to be maximized
-    vector<vector<double> > constraints;   // A matrix of the linear program in standard form
-    vector<char> constraint_types;            // b vector of the linear program in standard form
+    vector<double> objective_vector;        // Coefficients of the objective function to be maximized
+    vector<vector<double> > constraints;    // A matrix of the linear program in standard form
+    vector<char> constraint_types;          // b vector of the linear program in standard form
 
     void validate() const;
 
-    void gurobi_solve(vector<double>& solution, double& max, bool do_maximize, 
+    void gurobi_solve(vector<double>& solution, double& max, bool do_maximize,
         bool relaxed) const;
 };
 // =============================================
@@ -112,9 +111,9 @@ void Linear_Program::validate() const
     // Check if either vector is empty
     if (objective_vector.empty() || constraints.empty() || constraint_types.empty())
         throw runtime_error(error_message);
-    
-    // Check if objective vector of coefficients contains coefficients 
-    // for all variables
+
+    /*  Check if objective vector of coefficients contains coefficients 
+        for all variables */
     if (objective_vector.size() != constraints[0].size() - 1)
         throw runtime_error(error_message);
 
@@ -128,13 +127,13 @@ void Linear_Program::validate() const
         if (constraints[i].size() != eq_size) throw runtime_error(error_message);
 }
 
-void Linear_Program::solve(vector<double>& solution, double& value, 
+void Linear_Program::solve(vector<double>& solution, double& value,
     bool do_maximize, bool relaxed) const
 {
     gurobi_solve(solution, value, do_maximize, relaxed);
 }
 
-void Linear_Program::gurobi_solve(vector<double>& solution, double& value, 
+void Linear_Program::gurobi_solve(vector<double>& solution, double& value,
     bool do_maximize, bool relaxed) const
 {
     size_t num_variables = objective_vector.size();
@@ -191,9 +190,6 @@ struct Graph {
     int facilities() const { return (int)facility_costs.size(); }
 
     int clients() const { return (int)client_demands.size(); }
-
-private:
-    static int get_key(const pair<int, int>& map_it) { return map_it.first; }
 };
 
 Graph random_graph(int num_facilities, int num_clients)
@@ -226,17 +222,20 @@ Graph random_graph(int num_facilities, int num_clients)
         while (has_facilities < min_facilities_per_client)
         {
             if (available.empty())    // Failed, try again
+            {
+                std::cout << "Failed to generate random graph, retrying..." << std::endl;
                 return random_graph(num_facilities, num_clients);
+            }
 
             uniform_int_distribution<int> facility_dist(0, available.size() - 1);
             int facility_idx = facility_dist(mt_engine);
             int facility = available[facility_idx];    // Random facility
 
-                                                       // Remove facility from the available vector
+            // Remove facility from the available vector
             available.erase(available.begin() + facility_idx);
 
-            /*  Mark this client as supported by the facility if it doest not
-            already support the maximum number of clients */
+            /*  Mark this client as supported by the facility if it does not
+                already support the maximum number of clients */
             if (accumulate(problem.distance_cost[facility].begin(),
                 problem.distance_cost[facility].end(), 0) < max_clients_per_facility)
             {
@@ -258,7 +257,10 @@ Graph random_graph(int num_facilities, int num_clients)
         while (has_clients < min_clients_per_facility)
         {
             if (available.empty())    // Failed, try again
+            {
+                std::cout << "Failed to generate random graph, retrying..." << std::endl;
                 return random_graph(num_facilities, num_clients);
+            }
 
             uniform_int_distribution<int> client_dist(0, available.size() - 1);
             int client_idx = client_dist(mt_engine);
@@ -346,13 +348,13 @@ Graph random_graph(int num_facilities, int num_clients)
 // ================================= UTILITY ==================================
 // ============================================================================
 
-inline int edge_pos_primal(int client, int facility, int num_clients, 
+inline int edge_pos_primal(int client, int facility, int num_clients,
     int num_facilities = 0)
 {
     return num_facilities + (facility * num_clients) + client;
 }
 
-inline int edge_pos_dual(int facility, int client, int num_facilities, 
+inline int edge_pos_dual(int facility, int client, int num_facilities,
     int num_clients = 0)
 {
     return num_clients + (client * num_facilities) + facility;
@@ -371,7 +373,7 @@ inline bool is_open(unsigned long long configuration, int facility)
     return ((1ll << facility) & configuration) > 0;
 }
 
-void optimal(const Graph& problem, map<int, int>& client_assignments, 
+void optimal(const Graph& problem, map<int, int>& client_assignments,
     map<int, vector<int> >& facility_assignments, double& min_cost)
 {
     client_assignments.clear();
@@ -388,8 +390,8 @@ void optimal(const Graph& problem, map<int, int>& client_assignments,
     unsigned long long out_of_range = 1ll << num_facilities;
 
     /*  Test all combinations of facilities. Each combination is codified in an
-    unsigned long long variable, where a 1 value in the nth bit signals that
-    the facility in the nth position of the facilities vector is active */
+        unsigned long long variable, where a 1 value in the nth bit signals that
+        the facility in the nth position of the facilities vector is active */
     for (unsigned long long combination = 1; combination < out_of_range; ++combination)
     {
         /*  Objecive function to be minimized. The coefficients will all be negated
@@ -416,8 +418,8 @@ void optimal(const Graph& problem, map<int, int>& client_assignments,
             is equal to one, for all clients j */
         for (int client = 0; client < num_clients; ++client)
         {
-            vector<double> constraint(num_variables+1, 0);
-            
+            vector<double> constraint(num_variables + 1, 0);
+
             for (int facility = 0; facility < num_facilities; ++facility)
             {
                 int position = edge_pos_primal(client, facility, num_clients);
@@ -436,7 +438,7 @@ void optimal(const Graph& problem, map<int, int>& client_assignments,
         {
             for (int client = 0; client < num_clients; ++client)
             {
-                vector<double> constraint(num_variables+1, 0);
+                vector<double> constraint(num_variables + 1, 0);
 
                 int pos = edge_pos_primal(client, facility, num_clients);
                 constraint[pos] = 1;
@@ -453,7 +455,7 @@ void optimal(const Graph& problem, map<int, int>& client_assignments,
         vector<double> solution;
         double min;
         double opening_cost = 0;
-        
+
         lp.solve(solution, min, false);
 
         for (int i = 0; i < num_facilities; ++i)
@@ -470,13 +472,13 @@ void optimal(const Graph& problem, map<int, int>& client_assignments,
     }
 
     min_cost = best_cost;
-    
+
     for (int facility = 0; facility < num_facilities; ++facility)
     {
         for (int client = 0; client < num_clients; ++client)
         {
             int position = edge_pos_primal(client, facility, num_clients);
-            if ( best_solution[position] == 1 )
+            if (best_solution[position] == 1)
             {
                 client_assignments[client] = facility;
                 facility_assignments[facility].push_back(client);
@@ -501,15 +503,15 @@ struct Cluster {
 inline double objective_fn_contribution(const Graph& problem, int facility,
     const set<int>& clients)
 {
-    auto lambda_acc_client_cost = [&](double acc, int client) -> double 
+    auto lambda_acc_client_cost = [&](double acc, int client) -> double
     {
         int distance = problem.distance_cost.at(facility).at(client);
         if (distance == artificial_inf) distance = 0;
-        return acc + distance * problem.client_demands[client]; 
+        return acc + distance * problem.client_demands[client];
     };
-    
-    return accumulate(clients.begin(), clients.end(), 
-        (double) problem.facility_costs[facility], lambda_acc_client_cost);
+
+    return accumulate(clients.begin(), clients.end(),
+        (double)problem.facility_costs[facility], lambda_acc_client_cost);
 }
 
 inline int find_cluster_seed(const map<int, int>& client_assignments,
@@ -521,12 +523,12 @@ inline int find_cluster_seed(const map<int, int>& client_assignments,
     for (int client = 0; client < num_clients; ++client)
     {
         // Ignore clients that were already assigned to clusters
-        if ( client_assignments.find(client) != client_assignments.end() )
+        if (client_assignments.find(client) != client_assignments.end())
             continue;
 
-        /*  If this is a client with a smaller vj than the best one so far, 
+        /*  If this is a client with a smaller vj than the best one so far,
             update the variables */
-        if ( dual_solution[client] < min_val )
+        if (dual_solution[client] < min_val)
         {
             min_val = dual_solution[client];
             client_seed = client;
@@ -548,7 +550,7 @@ inline void formulate_primal(const Graph& problem, vector<double>& objective,
 
     // ========== Set the objective function ==========
     objective.resize(num_variables);
-    
+
     // Copy the facility costs (coefficients of the first num_facilities variables)
     copy(problem.facility_costs.begin(), problem.facility_costs.end(),
         objective.begin());
@@ -559,8 +561,8 @@ inline void formulate_primal(const Graph& problem, vector<double>& objective,
         for (int client = 0; client < num_clients; ++client)
         {
             int pos = edge_pos_primal(client, facility, num_clients, num_facilities);
-            
-            /*  Set the value of xij to be dij*wj, where dij is the cost per product 
+
+            /*  Set the value of xij to be dij*wj, where dij is the cost per product
                 unit and wj is the client demand, in product units */
             objective[pos] = problem.distance_cost.at(facility).at(client) *
                 problem.client_demands[client];
@@ -573,19 +575,19 @@ inline void formulate_primal(const Graph& problem, vector<double>& objective,
     for (int client = 0; client < num_clients; ++client)
     {
         vector<double> constraint(num_variables + 1, 0.);
-        
+
         for (int facility = 0; facility < num_facilities; ++facility)
         {
             int pos = edge_pos_primal(client, facility, num_clients, num_facilities);
             // xij coefficient is 1
             constraint[pos] = 1.;
         }
-        
+
         // Sum of xij, through all facilities i, must be equal to 1
         constraint.back() = 1.;
 
-        constraints.push_back( constraint );
-        constraint_types.push_back( '=' );
+        constraints.push_back(constraint);
+        constraint_types.push_back('=');
     }
     // ======================================================
 
@@ -620,7 +622,7 @@ inline void formulate_dual(const Graph& problem, vector<double>& objective,
     // ========== Set the objective function ==========
     // Initial num_clients positions are set to 1
     objective = vector<double>(num_clients, 1.);
-    /*  Expand the array to size num_variables. Positions 
+    /*  Expand the array to size num_variables. Positions
         [num_clients, num_variables) are set to 0 */
     objective.resize(num_variables);
     // ================================================
@@ -640,7 +642,7 @@ inline void formulate_dual(const Graph& problem, vector<double>& objective,
             constraint[pos] = -1.;
 
             // Set the right-hand-side to dij*wij
-            constraint.back() = problem.distance_cost.at(facility).at(client) * 
+            constraint.back() = problem.distance_cost.at(facility).at(client) *
                 problem.client_demands[client];
 
             constraints.push_back(constraint);
@@ -654,7 +656,7 @@ inline void formulate_dual(const Graph& problem, vector<double>& objective,
     for (int facility = 0; facility < num_facilities; ++facility)
     {
         vector<double> constraint(num_variables + 1, 0.);
-        
+
         for (int client = 0; client < num_clients; ++client)
         {
             // Set position Beta_ij to 1
@@ -671,8 +673,8 @@ inline void formulate_dual(const Graph& problem, vector<double>& objective,
     // ========================================================
 }
 
-void lp_rounding(const Graph& problem, map<int, int>& client_assignments, 
-    map<int, vector<int> >& facility_assignments, double& min_cost, 
+void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
+    map<int, vector<int> >& facility_assignments, double& min_cost,
     bool modified = false)
 {
     client_assignments.clear();
@@ -684,9 +686,9 @@ void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
     vector<char> constraint_types_primal, constraint_types_dual;
 
     // Formulate LP problems
-    formulate_primal(problem, objective_primal, constraints_primal, 
+    formulate_primal(problem, objective_primal, constraints_primal,
         constraint_types_primal);
-    formulate_dual(problem, objective_dual, constraints_dual, 
+    formulate_dual(problem, objective_dual, constraints_dual,
         constraint_types_dual);
 
     // Create Linear_Program objects
@@ -695,7 +697,7 @@ void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
 
     vector<double> solution_primal, solution_dual;
     double cost_primal, cost_dual;
-    
+
     // Solve LP problems
     primal_lp.solve(solution_primal, cost_primal, false, true);
     dual_lp.solve(solution_dual, cost_dual, true, true);
@@ -711,11 +713,11 @@ void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
 
     int client_seed = find_cluster_seed(client_assignments, solution_dual, num_clients);
 
-    // Create a new cluster and 
-    while ( client_seed != -1 )
+    // Continue while there are unassociated clients
+    while (client_seed != -1)
     {
         Cluster cluster;
-        
+
         // Add to the cluster all facilities that serve the client seed
         for (int facility = 0; facility < num_facilities; ++facility)
         {
@@ -731,7 +733,7 @@ void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
             for (int client = 0; client < num_clients; ++client)
             {
                 /*  Add this client to the cluster if it is fractionally served by
-                the current facility and has not yet been added to any clusters */
+                    the current facility and has not yet been added to any clusters */
                 int pos = edge_pos_primal(client, *facility_it, num_clients, num_facilities);
                 if (solution_primal[pos] > 0 &&
                     client_assignments.find(client) == client_assignments.end())
@@ -741,69 +743,71 @@ void lp_rounding(const Graph& problem, map<int, int>& client_assignments,
             }
         }
 
-        int smallest_cost = INT_MAX, chosen_facility;
-        
+        int chosen_facility;
+
         /*  Choose a facility to open. In the standard heuristic, the chosen
             facility is the cheapest to open. In the modified heuristic, the
             chosen facility is the one that provides the smallest contribution
             to the objective function */
-if (modified)   // Modified heuristic
-{
-    double smallest_contribution = INT_MAX;
-
-    auto lambda_cmp_contribution = [&](int f1, int f2) -> bool
-    {
-        return objective_fn_contribution(problem, f1, cluster.clients) <
-            objective_fn_contribution(problem, f2, cluster.clients);
-    };
-
-    set<int>::const_iterator position = min_element(cluster.facilities.begin(),
-        cluster.facilities.end(), lambda_cmp_contribution);
-
-    chosen_facility = *position;
-}
-else    // Standard heuristic
-{
-    // Find the facility in the cluster with the smallest opening cost
-    for (set<int>::const_iterator facility_it = cluster.facilities.begin();
-        facility_it != cluster.facilities.end(); ++facility_it)
-    {
-        if (problem.facility_costs[*facility_it] < smallest_cost)
+        if (modified)   // Modified heuristic
         {
-            smallest_cost = problem.facility_costs[*facility_it];
-            chosen_facility = *facility_it;
+            double smallest_contribution = INT_MAX;
+
+            auto lambda_cmp_contribution = [&](int f1, int f2) -> bool
+            {
+                return objective_fn_contribution(problem, f1, cluster.clients) <
+                    objective_fn_contribution(problem, f2, cluster.clients);
+            };
+
+            set<int>::const_iterator position = min_element(cluster.facilities.begin(),
+                cluster.facilities.end(), lambda_cmp_contribution);
+
+            chosen_facility = *position;
         }
-    }
-}
+        else    // Standard heuristic
+        {
+            int smallest_cost = INT_MAX;
 
-// Update the mappings
-facility_assignments[chosen_facility].push_back(client_seed);
-client_assignments[client_seed] = chosen_facility;
+            // Find the facility in the cluster with the smallest opening cost
+            for (set<int>::const_iterator facility_it = cluster.facilities.begin();
+                facility_it != cluster.facilities.end(); ++facility_it)
+            {
+                if (problem.facility_costs[*facility_it] < smallest_cost)
+                {
+                    smallest_cost = problem.facility_costs[*facility_it];
+                    chosen_facility = *facility_it;
+                }
+            }
+        }
 
-// Assign the clients in the cluster to the opened facility
-for (set<int>::const_iterator client_it = cluster.clients.begin();
-    client_it != cluster.clients.end(); ++client_it)
-{
-    // Assign the client if there is service from the facility to it
-    if (problem.distance_cost[chosen_facility][*client_it] != artificial_inf &&
-        *client_it != client_seed)
-    {
-        client_assignments[*client_it] = chosen_facility;
-        facility_assignments[chosen_facility].push_back(*client_it);
-    }
-}
+        // Update the mappings
+        facility_assignments[chosen_facility].push_back(client_seed);
+        client_assignments[client_seed] = chosen_facility;
 
-// Update the cost of the solution
-for (set<int>::const_iterator client_it = cluster.clients.begin();
-    client_it != cluster.clients.end(); ++client_it)
-{
-    int distance = problem.distance_cost.at(chosen_facility).at(*client_it);
-    if (distance == artificial_inf) distance = 0;
-    cost += distance * problem.client_demands[*client_it];
-}
-cost += problem.facility_costs[chosen_facility];
+        // Assign the clients in the cluster to the opened facility
+        for (set<int>::const_iterator client_it = cluster.clients.begin();
+            client_it != cluster.clients.end(); ++client_it)
+        {
+            // Assign the client if there is service from the facility to it
+            if (problem.distance_cost[chosen_facility][*client_it] != artificial_inf &&
+                *client_it != client_seed)
+            {
+                client_assignments[*client_it] = chosen_facility;
+                facility_assignments[chosen_facility].push_back(*client_it);
+            }
+        }
 
-client_seed = find_cluster_seed(client_assignments, solution_dual, num_clients);
+        // Update the cost of the solution
+        for (set<int>::const_iterator client_it = cluster.clients.begin();
+            client_it != cluster.clients.end(); ++client_it)
+        {
+            int distance = problem.distance_cost.at(chosen_facility).at(*client_it);
+            if (distance == artificial_inf) distance = 0;
+            cost += distance * problem.client_demands[*client_it];
+        }
+        cost += problem.facility_costs[chosen_facility];
+
+        client_seed = find_cluster_seed(client_assignments, solution_dual, num_clients);
     }
     // ======================================================
 
@@ -836,7 +840,7 @@ string print_input_format(const Graph& problem)
     return ss.str();
 }
 
-string print_output_format(int instance, const string& algorithm, 
+string print_output_format(int instance, const string& algorithm,
     int num_facilities, const map<int, int> client_assignments,
     const map<int, vector<int> >& facility_assignments, double cost)
 {
@@ -870,13 +874,13 @@ void read_instance(Graph& problem, istream& in, ostream& out)
 {
     int num_facilities, num_clients;
 
-    if ( !(in >> num_facilities >> num_clients) )
+    if (!(in >> num_facilities >> num_clients))
         throw runtime_error("Could not read from file");
 
     int buffer;
     for (int facility = 0; facility < num_facilities; ++facility)
     {
-        if ( !(in >> buffer) ) throw runtime_error("Could not read from file");
+        if (!(in >> buffer)) throw runtime_error("Could not read from file");
         problem.facility_costs.push_back(buffer);
     }
 
@@ -888,11 +892,11 @@ void read_instance(Graph& problem, istream& in, ostream& out)
 
     for (int facility = 0; facility < num_facilities; ++facility)
     {
-        problem.distance_cost.push_back( vector<int>(num_clients, 0) );
+        problem.distance_cost.push_back(vector<int>(num_clients, 0));
 
         for (int client = 0; client < num_clients; ++client)
         {
-            if ( !(in >> problem.distance_cost[facility][client]) )
+            if (!(in >> problem.distance_cost[facility][client]))
                 throw runtime_error("Could not read from file");
         }
     }
@@ -902,7 +906,7 @@ void read_input(istream& in, ostream& out, bool find_cases = false)
 {
     int num_instances;
 
-    if ( !(in >> num_instances) ) 
+    if (!(in >> num_instances))
         throw runtime_error("Could not read number of instances");
 
     bool standard_found = false, modified_found = false;
@@ -923,15 +927,15 @@ void read_input(istream& in, ostream& out, bool find_cases = false)
         double opt_cost, h_cost, mh_cost;
 
         optimal(problem, client_assignment, facility_assignment, opt_cost);
-        ss << print_output_format(instance+1, "Ótima", problem.facilities(), 
+        ss << print_output_format(instance + 1, "Ótima", problem.facilities(),
             client_assignment, facility_assignment, opt_cost) << endl;
 
         lp_rounding(problem, client_assignment, facility_assignment, h_cost);
-        ss << print_output_format(instance+1, "Heurística", problem.facilities(),
+        ss << print_output_format(instance + 1, "Heurística", problem.facilities(),
             client_assignment, facility_assignment, h_cost) << endl;
 
         lp_rounding(problem, client_assignment, facility_assignment, mh_cost, true);
-        ss << print_output_format(instance+1, "Heurística Melhorada", 
+        ss << print_output_format(instance + 1, "Heurística Melhorada",
             problem.facilities(), client_assignment, facility_assignment, mh_cost) << endl;
 
         ss << "========================================" << endl << endl;
@@ -971,8 +975,8 @@ void read_input(istream& in, ostream& out, bool find_cases = false)
     out << "================================" << endl << endl;
     out << "Heuristic mean ratio: " << (h_mean / num_instances) << endl;
     out << "Modified heuristic mean ratio: " << (mh_mean / num_instances) << endl;
-    out << "Heuristic equals OPT: " << (100*(h_success / num_instances)) << "%" << endl;
-    out << "Modified heuristic equals OPT: " << (100*(mh_success / num_instances)) << "%" << endl;
+    out << "Heuristic equals OPT: " << (100 * (h_success / num_instances)) << "%" << endl;
+    out << "Modified heuristic equals OPT: " << (100 * (mh_success / num_instances)) << "%" << endl;
     out << "Worst heuristic ratio: " << h_worst << endl;
     out << "Worst modified heuristic ratio: " << mh_worst << endl << endl;
 
@@ -1003,36 +1007,36 @@ void random_problems(int problems_per_configuration, ostream& out)
     out << "========== Configuration 1 ==========" << endl;
     out << "=====================================" << endl << endl;
     for (int i = 0; i < problems_per_configuration; i++)
-        out << print_input_format( random_graph(4, 10) ) << endl;
+        out << print_input_format(random_graph(4, 10)) << endl;
 
     out << "=====================================" << endl;
     out << "========== Configuration 2 ==========" << endl;
     out << "=====================================" << endl << endl;
     for (int i = 0; i < problems_per_configuration; i++)
-        out << print_input_format( random_graph(5, 12) ) << endl;
+        out << print_input_format(random_graph(5, 12)) << endl;
 
     out << "=====================================" << endl;
     out << "========== Configuration 3 ==========" << endl;
     out << "=====================================" << endl << endl;
     for (int i = 0; i < problems_per_configuration; i++)
-        out << print_input_format( random_graph(6, 14) ) << endl;
+        out << print_input_format(random_graph(6, 14)) << endl;
 
     out << "=====================================" << endl;
     out << "========== Configuration 4 ==========" << endl;
     out << "=====================================" << endl << endl;
     for (int i = 0; i < problems_per_configuration; i++)
-        out << print_input_format( random_graph(7, 16) ) << endl;
+        out << print_input_format(random_graph(7, 16)) << endl;
 }
 
 int main()
 {
     env.set(GRB_IntParam_OutputFlag, 0);
-    
+
     try
     {
         string choice;
         cout << "Type \"f\" for file inputs, or \"r\" for random problems:" << endl;
-        
+
         do { std::cin >> choice; } while (choice != "r" && choice != "f");
 
         if (choice == "f")
